@@ -81,12 +81,20 @@ interface ICompoundor is IERC721Receiver {
     function balanceOf(address account) external view returns (uint256 balance);
 
     /**
-     * @notice Returns balance of token of account
+     * @notice Returns balance of token of account for owners of positions
      * @param account Address of account
      * @param token Address of token
      * @return balance amount of token for account
      */
-    function accountBalances(address account, address token) external view returns (uint256 balance);
+    function ownerBalances(address account, address token) external view returns (uint256 balance);
+
+    /**
+     * @notice Returns balance of token of account for callers of positions
+     * @param account Address of account
+     * @param token Address of token
+     * @return balance amount debted to the position at token
+     */
+    function callerBalances(address account, address token) external view returns (uint256 balance);
 
     /**
      * @notice Removes a NFT from the protocol and safe transfers it to address to
@@ -103,12 +111,20 @@ interface ICompoundor is IERC721Receiver {
     ) external;
 
     /**
-     * @notice Withdraws token balance for a address and token
+     * @notice Withdraws token balance for a address and token for an owner
      * @param token Address of token to withdraw
      * @param to Address to send to
      * @param amount amount to withdraw
      */
-    function withdrawBalance(address token, address to, uint256 amount) external;
+    function withdrawBalanceOwner(address token, address to, uint256 amount) external;
+
+    /**
+     * @notice Withdraws token balance for a address and token for a caller
+     * @param token Address of token to withdraw
+     * @param to Address to send to
+     * @param amount amount to withdraw
+     */
+    function withdrawBalanceCaller(address token, address to, uint256 amount) external;
 
     /// @notice how reward should be converted
     enum RewardConversion { NONE, TOKEN_0, TOKEN_1 }

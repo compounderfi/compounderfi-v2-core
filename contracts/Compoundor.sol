@@ -51,7 +51,8 @@ contract Compoundor is ICompoundor, ReentrancyGuard, Ownable, Multicall {
 
     mapping(uint256 => address) public override ownerOf;
     mapping(address => uint256[]) public override accountTokens;
-    mapping(address => mapping(address => uint256)) public override accountBalances;
+    mapping(address => mapping(address => uint256)) public override callerBalances;
+    mapping(address => mapping(address => uint256)) public override ownerBalances;
 
     constructor(address _weth, IUniswapV3Factory _factory, INonfungiblePositionManager _nonfungiblePositionManager, ISwapRouter _swapRouter) {
         weth = _weth;
@@ -145,8 +146,8 @@ contract Compoundor is ICompoundor, ReentrancyGuard, Ownable, Multicall {
         // only if there are balances to work with - start autocompounding process
         if (state.amount0 > 0 || state.amount1 > 0) { //re-entry guard is not required because the state modifying 
             // add previous balances from given tokens
-            state.amount0 = state.amount0.add(accountBalances[state.tokenOwner][state.token0]);
-            state.amount1 = state.amount1.add(accountBalances[state.tokenOwner][state.token1]);
+            state.amount0 = state.amount0.add(ownerBalances[state.tokenOwner][state.token0]);
+            state.amount1 = state.amount1.add(ownerBalances[state.tokenOwner][state.token1]);
 
             SwapParams memory swapParams = SwapParams(
                 state.token0, 
@@ -206,29 +207,30 @@ contract Compoundor is ICompoundor, ReentrancyGuard, Ownable, Multicall {
             }
 
             // calculate remaining tokens for owner
-            _setBalanceNoEvent(state.tokenOwner, state.token0, state.amount0.sub(compounded0).sub(state.amount0Fees));
-            _setBalanceNoEvent(state.tokenOwner, state.token1, state.amount1.sub(compounded1).sub(state.amount1Fees));
+            _setBalanceNoEventOwner(state.tokenOwner, state.token0, state.amount0.sub(compounded0).sub(state.amount0Fees));
+            _setBalanceNoEventOwner(state.tokenOwner, state.token1, state.amount1.sub(compounded1).sub(state.amount1Fees));
 
             // distribute fees - handle 2 cases (nft owner - no protocol reward / anyone else)
             if (state.tokenOwner == msg.sender) {
                 reward0 = 0;
                 reward1 = 0;
             } else {
+                
                 uint64 protocolRewardX64 = totalRewardX64 - compounderRewardX64;
                 uint256 protocolFees0 = state.amount0Fees.mul(protocolRewardX64).div(totalRewardX64);
                 uint256 protocolFees1 = state.amount1Fees.mul(protocolRewardX64).div(totalRewardX64);
 
                 reward0 = state.amount0Fees.sub(protocolFees0);
                 reward1 = state.amount1Fees.sub(protocolFees1);
-
-                _increaseBalance(msg.sender, state.token0, reward0);
-                _increaseBalance(msg.sender, state.token1, reward1);
+                
+                _increaseBalanceCaller(msg.sender, state.token0, state.amount0Fees);
+                _increaseBalanceCaller(msg.sender, state.token1, state.amount1Fees);
 
             }
         }
 
         if (params.withdrawReward) {
-            _withdrawFullBalances(state.token0, state.token1, msg.sender);
+            _withdrawFullBalancesInternalCaller(state.token0, state.token1, msg.sender);
         }
 
         emit AutoCompounded(msg.sender, params.tokenId, compounded0, compounded1, reward0, reward1, state.token0, state.token1);
@@ -307,7 +309,7 @@ contract Compoundor is ICompoundor, ReentrancyGuard, Ownable, Multicall {
 
         if (withdrawBalances) {
             (, , address token0, address token1, , , , , , , , ) = nonfungiblePositionManager.positions(tokenId);
-            _withdrawFullBalances(token0, token1, to);
+            _withdrawFullBalancesInternalCaller(token0, token1, to);
         }
     }
 
@@ -317,49 +319,69 @@ contract Compoundor is ICompoundor, ReentrancyGuard, Ownable, Multicall {
      * @param to Address to send to
      * @param amount amount to withdraw
      */
-    function withdrawBalance(address token, address to, uint256 amount) external override nonReentrant {
+    function withdrawBalanceOwner(address token, address to, uint256 amount) external override nonReentrant {
         require(amount > 0, "amount==0");
-        uint256 balance = accountBalances[msg.sender][token];
-        _withdrawBalanceInternal(token, to, balance, amount);
+        uint256 balance = ownerBalances[msg.sender][token];
+        _withdrawBalanceInternalOwner(token, to, balance, amount);
     }
 
-    function _increaseBalance(address account, address token, uint256 amount) internal {
+    function withdrawBalanceCaller(address token, address to, uint256 amount) external override nonReentrant {
+        require(amount > 0, "amount==0");
+        uint256 balance = ownerBalances[msg.sender][token];
+        _withdrawBalanceInternalOwner(token, to, balance, amount);
+    }
+
+    //for caller only
+    function _increaseBalanceCaller(address account, address token, uint256 amount) internal {
         if(amount > 0) {
-            accountBalances[account][token] = accountBalances[account][token].add(amount);
+            callerBalances[account][token] = callerBalances[account][token].add(amount);
             emit BalanceAdded(account, token, amount);
         }
     }
 
-    function _setBalance(address account, address token, uint256 amount) internal {
-        uint currentBalance = accountBalances[account][token];
+    //for owner only
+    function _setBalanceOwner(address account, address token, uint256 amount) internal {
+        uint currentBalance = ownerBalances[account][token];
         
         if (amount > currentBalance) {
-            accountBalances[account][token] = amount;
+            ownerBalances[account][token] = amount;
             emit BalanceAdded(account, token, amount.sub(currentBalance));
         } else if (amount < currentBalance) {
-            accountBalances[account][token] = amount;
+            ownerBalances[account][token] = amount;
             emit BalanceRemoved(account, token, currentBalance.sub(amount));
         }
     }
 
-    function _setBalanceNoEvent(address account, address token, uint256 amount) internal {
-        accountBalances[account][token] = amount;
+    //for owner only
+    function _setBalanceNoEventOwner(address account, address token, uint256 amount) internal {
+        ownerBalances[account][token] = amount;
     }
 
-    function _withdrawFullBalances(address token0, address token1, address to) internal {
-        uint256 balance0 = accountBalances[msg.sender][token0];
+    //for owner only
+    function _withdrawFullBalancesInternalCaller(address token0, address token1, address to) internal {
+        uint256 balance0 = ownerBalances[msg.sender][token0];
         if (balance0 > 0) {
-            _withdrawBalanceInternal(token0, to, balance0, balance0);
+            _withdrawBalanceInternalOwner(token0, to, balance0, balance0);
         }
-        uint256 balance1 = accountBalances[msg.sender][token1];
+        uint256 balance1 = ownerBalances[msg.sender][token1];
         if (balance1 > 0) {
-            _withdrawBalanceInternal(token1, to, balance1, balance1);
+            _withdrawBalanceInternalOwner(token1, to, balance1, balance1);
         }
     }
 
-    function _withdrawBalanceInternal(address token, address to, uint256 balance, uint256 amount) internal {
+    //for owner only
+    function _withdrawBalanceInternalOwner(address token, address to, uint256 balance, uint256 amount) internal {
         require(amount <= balance, "amount>balance");
-        accountBalances[msg.sender][token] = accountBalances[msg.sender][token].sub(amount);
+        ownerBalances[msg.sender][token] = ownerBalances[msg.sender][token].sub(amount);
+        emit BalanceRemoved(msg.sender, token, amount);
+        SafeERC20.safeTransfer(IERC20(token), to, amount);
+        emit BalanceWithdrawn(msg.sender, token, to, amount);
+    }
+
+    //for caller only
+    function _withdrawBalanceInternalCaller(address token, address to, uint256 balance, uint256 amount) internal {
+        require(amount <= balance, "amount>balance");
+        ownerBalances[msg.sender][token] = ownerBalances[msg.sender][token].sub(amount);
         emit BalanceRemoved(msg.sender, token, amount);
         SafeERC20.safeTransfer(IERC20(token), to, amount);
         emit BalanceWithdrawn(msg.sender, token, to, amount);
