@@ -144,7 +144,7 @@ contract Compoundor is ICompoundor, ReentrancyGuard, Ownable, Multicall {
             nonfungiblePositionManager.positions(params.tokenId);
 
         // only if there are balances to work with - start autocompounding process
-        if (state.amount0 > 0 || state.amount1 > 0) { //re-entry guard is not required because the state modifying 
+        if (state.amount0 > 0 || state.amount1 > 0) {
             // add previous balances from given tokens
             state.amount0 = state.amount0.add(ownerBalances[state.tokenOwner][state.token0]);
             state.amount1 = state.amount1.add(ownerBalances[state.tokenOwner][state.token1]);
@@ -159,7 +159,6 @@ contract Compoundor is ICompoundor, ReentrancyGuard, Ownable, Multicall {
                 state.amount1, 
                 block.timestamp, 
                 params.rewardConversion, 
-                state.tokenOwner == msg.sender, 
                 params.doSwap
             );
     
@@ -182,52 +181,45 @@ contract Compoundor is ICompoundor, ReentrancyGuard, Ownable, Multicall {
             }
 
             // fees are always calculated based on added amount
-            // only calculate them when not tokenOwner
-            if (state.tokenOwner != msg.sender) {
-                if (params.rewardConversion == RewardConversion.NONE) {
-                    state.amount0Fees = compounded0.mul(totalRewardX64).div(Q64);
-                    state.amount1Fees = compounded1.mul(totalRewardX64).div(Q64);
+            if (params.rewardConversion == RewardConversion.NONE) {
+                state.amount0Fees = compounded0.mul(totalRewardX64).div(Q64);
+                state.amount1Fees = compounded1.mul(totalRewardX64).div(Q64);
+            } else {
+                // calculate total added - derive fees
+                uint addedTotal0 = compounded0.add(compounded1.mul(Q96).div(state.priceX96));
+                if (params.rewardConversion == RewardConversion.TOKEN_0) {
+                    state.amount0Fees = addedTotal0.mul(totalRewardX64).div(Q64);
+                    // if there is not enough token0 to pay fee - pay all there is
+                    if (state.amount0Fees > state.amount0.sub(compounded0)) {
+                        state.amount0Fees = state.amount0.sub(compounded0);
+                    }
                 } else {
-                    // calculate total added - derive fees
-                    uint addedTotal0 = compounded0.add(compounded1.mul(Q96).div(state.priceX96));
-                    if (params.rewardConversion == RewardConversion.TOKEN_0) {
-                        state.amount0Fees = addedTotal0.mul(totalRewardX64).div(Q64);
-                        // if there is not enough token0 to pay fee - pay all there is
-                        if (state.amount0Fees > state.amount0.sub(compounded0)) {
-                            state.amount0Fees = state.amount0.sub(compounded0);
-                        }
-                    } else {
-                        state.amount1Fees = addedTotal0.mul(state.priceX96).div(Q96).mul(totalRewardX64).div(Q64);
-                        // if there is not enough token1 to pay fee - pay all there is
-                        if (state.amount1Fees > state.amount1.sub(compounded1)) {
-                            state.amount1Fees = state.amount1.sub(compounded1);
-                        }
+                    state.amount1Fees = addedTotal0.mul(state.priceX96).div(Q96).mul(totalRewardX64).div(Q64);
+                    // if there is not enough token1 to pay fee - pay all there is
+                    if (state.amount1Fees > state.amount1.sub(compounded1)) {
+                        state.amount1Fees = state.amount1.sub(compounded1);
                     }
                 }
             }
+            
 
             // calculate remaining tokens for owner
             _setBalanceNoEventOwner(state.tokenOwner, state.token0, state.amount0.sub(compounded0).sub(state.amount0Fees));
             _setBalanceNoEventOwner(state.tokenOwner, state.token1, state.amount1.sub(compounded1).sub(state.amount1Fees));
 
             // distribute fees - handle 2 cases (nft owner - no protocol reward / anyone else)
-            if (state.tokenOwner == msg.sender) {
-                reward0 = 0;
-                reward1 = 0;
-            } else {
-                
-                uint64 protocolRewardX64 = totalRewardX64 - compounderRewardX64;
-                uint256 protocolFees0 = state.amount0Fees.mul(protocolRewardX64).div(totalRewardX64);
-                uint256 protocolFees1 = state.amount1Fees.mul(protocolRewardX64).div(totalRewardX64);
+            uint64 protocolRewardX64 = totalRewardX64 - compounderRewardX64;
+            uint256 protocolFees0 = state.amount0Fees.mul(protocolRewardX64).div(totalRewardX64);
+            uint256 protocolFees1 = state.amount1Fees.mul(protocolRewardX64).div(totalRewardX64);
 
-                reward0 = state.amount0Fees.sub(protocolFees0);
-                reward1 = state.amount1Fees.sub(protocolFees1);
-                
-                _increaseBalanceCaller(msg.sender, state.token0, state.amount0Fees);
-                _increaseBalanceCaller(msg.sender, state.token1, state.amount1Fees);
+            reward0 = state.amount0Fees.sub(protocolFees0);
+            reward1 = state.amount1Fees.sub(protocolFees1);
+            
+            _increaseBalanceCaller(msg.sender, state.token0, state.amount0Fees);
+            _increaseBalanceCaller(msg.sender, state.token1, state.amount1Fees);
 
-            }
         }
+        
 
         if (params.withdrawReward) {
             _withdrawFullBalancesInternalCaller(state.token0, state.token1, msg.sender);
@@ -489,7 +481,6 @@ contract Compoundor is ICompoundor, ReentrancyGuard, Ownable, Multicall {
         uint256 amount1;
         uint256 deadline;
         RewardConversion bc;
-        bool isOwner;
         bool doSwap;
     }
 
@@ -555,39 +546,38 @@ contract Compoundor is ICompoundor, ReentrancyGuard, Ownable, Multicall {
             }
 
             // adjust delta considering reward payment mode
-            if (!params.isOwner) {
-                if (params.bc == RewardConversion.TOKEN_0) {
-                    state.rewardAmount0 = state.totalReward0;
-                    if (state.sell0) {
-                        if (state.delta0 >= state.totalReward0) {
-                            state.delta0 = state.delta0.sub(state.totalReward0);
-                        } else {
-                            state.delta0 = state.totalReward0.sub(state.delta0);
-                            state.sell0 = false;
-                        }
+            if (params.bc == RewardConversion.TOKEN_0) {
+                state.rewardAmount0 = state.totalReward0;
+                if (state.sell0) {
+                    if (state.delta0 >= state.totalReward0) {
+                        state.delta0 = state.delta0.sub(state.totalReward0);
                     } else {
-                        state.delta0 = state.delta0.add(state.totalReward0);
-                        if (state.delta0 > amount1.mul(Q96).div(priceX96)) {
-                            state.delta0 = amount1.mul(Q96).div(priceX96);
-                        }
+                        state.delta0 = state.totalReward0.sub(state.delta0);
+                        state.sell0 = false;
                     }
-                } else if (params.bc == RewardConversion.TOKEN_1) {
-                    state.rewardAmount1 = state.totalReward0.mul(priceX96).div(Q96);
-                    if (!state.sell0) {
-                        if (state.delta0 >= state.totalReward0) {
-                            state.delta0 = state.delta0.sub(state.totalReward0);
-                        } else {
-                            state.delta0 = state.totalReward0.sub(state.delta0);
-                            state.sell0 = true;
-                        }
+                } else {
+                    state.delta0 = state.delta0.add(state.totalReward0);
+                    if (state.delta0 > amount1.mul(Q96).div(priceX96)) {
+                        state.delta0 = amount1.mul(Q96).div(priceX96);
+                    }
+                }
+            } else if (params.bc == RewardConversion.TOKEN_1) {
+                state.rewardAmount1 = state.totalReward0.mul(priceX96).div(Q96);
+                if (!state.sell0) {
+                    if (state.delta0 >= state.totalReward0) {
+                        state.delta0 = state.delta0.sub(state.totalReward0);
                     } else {
-                        state.delta0 = state.delta0.add(state.totalReward0);
-                        if (state.delta0 > amount0) {
-                            state.delta0 = amount0;
-                        }
+                        state.delta0 = state.totalReward0.sub(state.delta0);
+                        state.sell0 = true;
+                    }
+                } else {
+                    state.delta0 = state.delta0.add(state.totalReward0);
+                    if (state.delta0 > amount0) {
+                        state.delta0 = amount0;
                     }
                 }
             }
+            
 
             if (state.delta0 > 0) {
                 if (state.sell0) {
@@ -609,29 +599,24 @@ contract Compoundor is ICompoundor, ReentrancyGuard, Ownable, Multicall {
                 }
             }
         } else {
-            if (!params.isOwner) {
-                if (params.bc == RewardConversion.TOKEN_0) {
-                    state.rewardAmount0 = state.totalReward0;
-                } else if (params.bc == RewardConversion.TOKEN_1) {
-                    state.rewardAmount1 = state.totalReward0.mul(priceX96).div(Q96);
-                }
+
+            if (params.bc == RewardConversion.TOKEN_0) {
+                state.rewardAmount0 = state.totalReward0;
+            } else if (params.bc == RewardConversion.TOKEN_1) {
+                state.rewardAmount1 = state.totalReward0.mul(priceX96).div(Q96);
             }
+            
         }
         
-        // calculate max amount to add - considering fees (if token owner is calling - no fees)
-        if (params.isOwner) {
-            maxAddAmount0 = amount0;
-            maxAddAmount1 = amount1;
+        
+        if (params.bc == RewardConversion.NONE) {
+            maxAddAmount0 = amount0.mul(Q64).div(uint(totalRewardX64).add(Q64));
+            maxAddAmount1 = amount1.mul(Q64).div(uint(totalRewardX64).add(Q64));
         } else {
-            // in case caller is not owner - max amounts to add are slightly lower than available amounts - to account for reward payments
-            if (params.bc == RewardConversion.NONE) {
-                maxAddAmount0 = amount0.mul(Q64).div(uint(totalRewardX64).add(Q64));
-                maxAddAmount1 = amount1.mul(Q64).div(uint(totalRewardX64).add(Q64));
-            } else {
-                maxAddAmount0 = amount0 > state.rewardAmount0 ? amount0.sub(state.rewardAmount0) : 0;
-                maxAddAmount1 = amount1 > state.rewardAmount1 ? amount1.sub(state.rewardAmount1) : 0;
-            }
+            maxAddAmount0 = amount0 > state.rewardAmount0 ? amount0.sub(state.rewardAmount0) : 0;
+            maxAddAmount1 = amount1 > state.rewardAmount1 ? amount1.sub(state.rewardAmount1) : 0;
         }
+        
     }
 
     function _swap(bytes memory swapPath, uint256 amount, uint256 deadline) internal returns (uint256 amountOut) {
