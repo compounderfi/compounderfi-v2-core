@@ -36,8 +36,8 @@ interface ICompoundor is IERC721Receiver {
         uint256 tokenId,
         uint256 amountAdded0,
         uint256 amountAdded1,
-        uint256 reward0,
-        uint256 reward1,
+        uint256 fees0,
+        uint256 fees1,
         address token0,
         address token1
     );

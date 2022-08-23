@@ -15,7 +15,7 @@ import "./external/uniswap/v3-periphery/libraries/LiquidityAmounts.sol";
 import "./external/uniswap/v3-periphery/interfaces/INonfungiblePositionManager.sol";
 
 import "./ICompoundor.sol";
-
+import "hardhat/console.sol";
 /*                                                  __          
   _________  ____ ___  ____  ____  __  ______  ____/ /___  _____
  / ___/ __ \/ __ `__ \/ __ \/ __ \/ / / / __ \/ __  / __ \/ ___/
@@ -119,15 +119,15 @@ contract Compoundor is ICompoundor, ReentrancyGuard, Ownable, Multicall {
     /**
      * @notice Autocompounds for a given NFT (anyone can call this and gets a percentage of the fees)
      * @param params Autocompound specific parameters (tokenId, ...)
-     * @return reward0 Amount of token0 caller recieves
-     * @return reward1 Amount of token1 caller recieves
+     * @return fees0 Amount of fees0 collected by the protocol AND caller
+     * @return fees1 Amount of fees1 collected by the protocol AND caller
      * @return compounded0 Amount of token0 that was compounded
      * @return compounded1 Amount of token1 that was compounded
      */
     function autoCompound(AutoCompoundParams memory params) 
         override 
         external
-        returns (uint256 reward0, uint256 reward1, uint256 compounded0, uint256 compounded1) 
+        returns (uint256 fees0, uint256 fees1, uint256 compounded0, uint256 compounded1) 
     {
         AutoCompoundState memory state;
         state.tokenOwner = ownerOf[params.tokenId];
@@ -182,41 +182,33 @@ contract Compoundor is ICompoundor, ReentrancyGuard, Ownable, Multicall {
 
             // fees are always calculated based on added amount
             if (params.rewardConversion == RewardConversion.NONE) {
-                state.amount0Fees = compounded0.mul(totalRewardX64).div(Q64);
-                state.amount1Fees = compounded1.mul(totalRewardX64).div(Q64);
+                fees0 = compounded0.mul(totalRewardX64).div(Q64);
+                fees1 = compounded1.mul(totalRewardX64).div(Q64);
             } else {
                 // calculate total added - derive fees
                 uint addedTotal0 = compounded0.add(compounded1.mul(Q96).div(state.priceX96));
                 if (params.rewardConversion == RewardConversion.TOKEN_0) {
-                    state.amount0Fees = addedTotal0.mul(totalRewardX64).div(Q64);
+                    fees0 = addedTotal0.mul(totalRewardX64).div(Q64);
                     // if there is not enough token0 to pay fee - pay all there is
-                    if (state.amount0Fees > state.amount0.sub(compounded0)) {
-                        state.amount0Fees = state.amount0.sub(compounded0);
+                    if (fees0 > state.amount0.sub(compounded0)) {
+                        fees0 = state.amount0.sub(compounded0);
                     }
                 } else {
-                    state.amount1Fees = addedTotal0.mul(state.priceX96).div(Q96).mul(totalRewardX64).div(Q64);
+                    fees1 = addedTotal0.mul(state.priceX96).div(Q96).mul(totalRewardX64).div(Q64);
                     // if there is not enough token1 to pay fee - pay all there is
-                    if (state.amount1Fees > state.amount1.sub(compounded1)) {
-                        state.amount1Fees = state.amount1.sub(compounded1);
+                    if (fees1 > state.amount1.sub(compounded1)) {
+                        fees1 = state.amount1.sub(compounded1);
                     }
                 }
             }
             
 
             // calculate remaining tokens for owner
-            _setBalanceNoEventOwner(state.tokenOwner, state.token0, state.amount0.sub(compounded0).sub(state.amount0Fees));
-            _setBalanceNoEventOwner(state.tokenOwner, state.token1, state.amount1.sub(compounded1).sub(state.amount1Fees));
-
-            // distribute fees - handle 2 cases (nft owner - no protocol reward / anyone else)
-            uint64 protocolRewardX64 = totalRewardX64 - compounderRewardX64;
-            uint256 protocolFees0 = state.amount0Fees.mul(protocolRewardX64).div(totalRewardX64);
-            uint256 protocolFees1 = state.amount1Fees.mul(protocolRewardX64).div(totalRewardX64);
-
-            reward0 = state.amount0Fees.sub(protocolFees0);
-            reward1 = state.amount1Fees.sub(protocolFees1);
+            _setBalanceNoEventOwner(state.tokenOwner, state.token0, state.amount0.sub(compounded0).sub(fees0));
+            _setBalanceNoEventOwner(state.tokenOwner, state.token1, state.amount1.sub(compounded1).sub(fees1));
             
-            _increaseBalanceCaller(msg.sender, state.token0, state.amount0Fees);
-            _increaseBalanceCaller(msg.sender, state.token1, state.amount1Fees);
+            _increaseBalanceCaller(msg.sender, state.token0, fees0);
+            _increaseBalanceCaller(msg.sender, state.token1, fees1);
 
         }
         
@@ -225,7 +217,7 @@ contract Compoundor is ICompoundor, ReentrancyGuard, Ownable, Multicall {
             _withdrawFullBalancesInternalCaller(state.token0, state.token1, msg.sender);
         }
 
-        emit AutoCompounded(msg.sender, params.tokenId, compounded0, compounded1, reward0, reward1, state.token0, state.token1);
+        emit AutoCompounded(msg.sender, params.tokenId, compounded0, compounded1, fees0, fees1, state.token0, state.token1);
     }
 
     /**
