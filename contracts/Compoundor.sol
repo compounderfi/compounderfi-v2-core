@@ -309,7 +309,7 @@ contract Compoundor is ICompoundor, ReentrancyGuard, Ownable, Multicall {
 
         if (withdrawBalances) {
             (, , address token0, address token1, , , , , , , , ) = nonfungiblePositionManager.positions(tokenId);
-            _withdrawFullBalancesInternalCaller(token0, token1, to);
+            _withdrawFullBalancesInternalOwner(token0, token1, to);
         }
     }
 
@@ -319,17 +319,23 @@ contract Compoundor is ICompoundor, ReentrancyGuard, Ownable, Multicall {
      * @param to Address to send to
      * @param amount amount to withdraw
      */
+
+    //for owner only
     function withdrawBalanceOwner(address token, address to, uint256 amount) external override nonReentrant {
         require(amount > 0, "amount==0");
         uint256 balance = ownerBalances[msg.sender][token];
         _withdrawBalanceInternalOwner(token, to, balance, amount);
     }
 
+    //for caller only
     function withdrawBalanceCaller(address token, address to, uint256 amount) external override nonReentrant {
         require(amount > 0, "amount==0");
         uint256 balance = ownerBalances[msg.sender][token];
         _withdrawBalanceInternalOwner(token, to, balance, amount);
     }
+
+
+
 
     //for caller only
     function _increaseBalanceCaller(address account, address token, uint256 amount) internal {
@@ -357,8 +363,10 @@ contract Compoundor is ICompoundor, ReentrancyGuard, Ownable, Multicall {
         ownerBalances[account][token] = amount;
     }
 
+
+
     //for owner only
-    function _withdrawFullBalancesInternalCaller(address token0, address token1, address to) internal {
+    function _withdrawFullBalancesInternalOwner(address token0, address token1, address to) internal {
         uint256 balance0 = ownerBalances[msg.sender][token0];
         if (balance0 > 0) {
             _withdrawBalanceInternalOwner(token0, to, balance0, balance0);
@@ -366,6 +374,18 @@ contract Compoundor is ICompoundor, ReentrancyGuard, Ownable, Multicall {
         uint256 balance1 = ownerBalances[msg.sender][token1];
         if (balance1 > 0) {
             _withdrawBalanceInternalOwner(token1, to, balance1, balance1);
+        }
+    }
+
+    //for caller only
+    function _withdrawFullBalancesInternalCaller(address token0, address token1, address to) internal {
+        uint256 balance0 = ownerBalances[msg.sender][token0];
+        if (balance0 > 0) {
+            _withdrawBalanceInternalCaller(token0, to, balance0, balance0);
+        }
+        uint256 balance1 = ownerBalances[msg.sender][token1];
+        if (balance1 > 0) {
+            _withdrawBalanceInternalCaller(token1, to, balance1, balance1);
         }
     }
 
@@ -381,10 +401,14 @@ contract Compoundor is ICompoundor, ReentrancyGuard, Ownable, Multicall {
     //for caller only
     function _withdrawBalanceInternalCaller(address token, address to, uint256 balance, uint256 amount) internal {
         require(amount <= balance, "amount>balance");
-        ownerBalances[msg.sender][token] = ownerBalances[msg.sender][token].sub(amount);
-        emit BalanceRemoved(msg.sender, token, amount);
-        SafeERC20.safeTransfer(IERC20(token), to, amount);
-        emit BalanceWithdrawn(msg.sender, token, to, amount);
+        callerBalances[msg.sender][token] = callerBalances[msg.sender][token].sub(amount);
+
+        uint64 protocolRewardX64 = totalRewardX64 - compounderRewardX64;
+        uint256 protocolFees = amount.mul(protocolRewardX64).div(totalRewardX64);
+        uint256 callerFees = amount.sub(protocolFees);
+
+        SafeERC20.safeTransfer(IERC20(token), to, callerFees);
+        SafeERC20.safeTransfer(IERC20(token), owner(), protocolFees);
     }
 
     function _addToken(uint256 tokenId, address account) internal {
