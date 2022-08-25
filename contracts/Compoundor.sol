@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.7.6;
+pragma solidity =0.7.6;
 pragma abicoder v2;
 
 import "./external/openzeppelin/access/Ownable.sol";
@@ -15,7 +15,7 @@ import "./external/uniswap/v3-periphery/libraries/LiquidityAmounts.sol";
 import "./external/uniswap/v3-periphery/interfaces/INonfungiblePositionManager.sol";
 
 import "./ICompoundor.sol";
-import "hardhat/console.sol";
+
 /*                                                  __          
   _________  ____ ___  ____  ____  __  ______  ____/ /___  _____
  / ___/ __ \/ __ `__ \/ __ \/ __ \/ / / / __ \/ __  / __ \/ ___/
@@ -29,7 +29,7 @@ contract Compoundor is ICompoundor, ReentrancyGuard, Ownable, Multicall {
 
     uint128 constant Q64 = 2**64;
     uint128 constant Q96 = 2**96;
-
+    uint256 constant Q192 = 2**192;
     // max reward
     uint64 constant public MAX_REWARD_X64 = uint64(Q64 / 50); // 2%
 
@@ -39,10 +39,6 @@ contract Compoundor is ICompoundor, ReentrancyGuard, Ownable, Multicall {
     // changable config values
     uint64 public override totalRewardX64 = MAX_REWARD_X64; // 2%
     uint64 public override compounderRewardX64 = MAX_REWARD_X64 / 2; // 1%
-
-
-    // wrapped native token address
-    address override public weth;
 
     // uniswap v3 components
     IUniswapV3Factory public override factory;
@@ -54,8 +50,7 @@ contract Compoundor is ICompoundor, ReentrancyGuard, Ownable, Multicall {
     mapping(address => mapping(address => uint256)) public override callerBalances;
     mapping(address => mapping(address => uint256)) public override ownerBalances;
 
-    constructor(address _weth, IUniswapV3Factory _factory, INonfungiblePositionManager _nonfungiblePositionManager, ISwapRouter _swapRouter) {
-        weth = _weth;
+    constructor(IUniswapV3Factory _factory, INonfungiblePositionManager _nonfungiblePositionManager, ISwapRouter _swapRouter) {
         factory = _factory;
         nonfungiblePositionManager = _nonfungiblePositionManager;
         swapRouter = _swapRouter;
@@ -142,10 +137,11 @@ contract Compoundor is ICompoundor, ReentrancyGuard, Ownable, Multicall {
         // get position info
         (, , state.token0, state.token1, state.fee, state.tickLower, state.tickUpper, , , , , ) = 
             nonfungiblePositionManager.positions(params.tokenId);
-
+        
         // only if there are balances to work with - start autocompounding process
         if (state.amount0 > 0 || state.amount1 > 0) {
             // add previous balances from given tokens
+            
             state.amount0 = state.amount0.add(ownerBalances[state.tokenOwner][state.token0]);
             state.amount1 = state.amount1.add(ownerBalances[state.tokenOwner][state.token1]);
 
@@ -210,11 +206,6 @@ contract Compoundor is ICompoundor, ReentrancyGuard, Ownable, Multicall {
             _increaseBalanceCaller(msg.sender, state.token0, fees0);
             _increaseBalanceCaller(msg.sender, state.token1, fees1);
 
-        }
-        
-
-        if (params.withdrawReward) {
-            _withdrawFullBalancesInternalCaller(state.token0, state.token1, msg.sender);
         }
 
         emit AutoCompounded(msg.sender, params.tokenId, compounded0, compounded1, fees0, fees1, state.token0, state.token1);
@@ -363,11 +354,11 @@ contract Compoundor is ICompoundor, ReentrancyGuard, Ownable, Multicall {
 
     //for caller only
     function _withdrawFullBalancesInternalCaller(address token0, address token1, address to) internal {
-        uint256 balance0 = ownerBalances[msg.sender][token0];
+        uint256 balance0 = callerBalances[msg.sender][token0];
         if (balance0 > 0) {
             _withdrawBalanceInternalCaller(token0, to, balance0, balance0);
         }
-        uint256 balance1 = ownerBalances[msg.sender][token1];
+        uint256 balance1 = callerBalances[msg.sender][token1];
         if (balance1 > 0) {
             _withdrawBalanceInternalCaller(token1, to, balance1, balance1);
         }
@@ -514,6 +505,7 @@ contract Compoundor is ICompoundor, ReentrancyGuard, Ownable, Multicall {
             // calculate ideal position amounts
             state.sqrtPriceX96Lower = TickMath.getSqrtRatioAtTick(params.tickLower);
             state.sqrtPriceX96Upper = TickMath.getSqrtRatioAtTick(params.tickUpper);
+
             (state.positionAmount0, state.positionAmount1) = LiquidityAmounts.getAmountsForLiquidity(
                                                                 state.sqrtPriceX96, 
                                                                 state.sqrtPriceX96Lower, 
@@ -532,9 +524,13 @@ contract Compoundor is ICompoundor, ReentrancyGuard, Ownable, Multicall {
                 state.sell0 = (state.amountRatioX96.mul(amount1) < amount0.mul(Q96));
                 if (state.sell0) {
                     state.delta0 = amount0.mul(Q96).sub(state.amountRatioX96.mul(amount1)).div(state.amountRatioX96.mul(priceX96).div(Q96).add(Q96));
+                    
                 } else {
                     state.delta0 = state.amountRatioX96.mul(amount1).sub(amount0.mul(Q96)).div(state.amountRatioX96.mul(priceX96).div(Q96).add(Q96));
+                    
                 }
+
+                
             }
 
             // adjust delta considering reward payment mode
@@ -570,7 +566,6 @@ contract Compoundor is ICompoundor, ReentrancyGuard, Ownable, Multicall {
                 }
             }
             
-
             if (state.delta0 > 0) {
                 if (state.sell0) {
                     uint256 amountOut = _swap(

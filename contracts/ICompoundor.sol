@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.7.6;
+pragma solidity =0.7.6;
 pragma abicoder v2;
 
 import "./external/openzeppelin/token/ERC20/IERC20Metadata.sol";
@@ -41,9 +41,6 @@ interface ICompoundor is IERC721Receiver {
         address token0,
         address token1
     );
-
-    /// @notice The weth address
-    function weth() external view returns (address);
 
     /// @notice The factory address with which this staking contract is compatible
     function factory() external view returns (IUniswapV3Factory);
@@ -136,9 +133,6 @@ interface ICompoundor is IERC721Receiver {
         
         // which token to convert to
         RewardConversion rewardConversion;
-
-        // should token be withdrawn to compounder immediately
-        bool withdrawReward;
 
         // do swap - to add max amount to position (costs more gas)
         bool doSwap;

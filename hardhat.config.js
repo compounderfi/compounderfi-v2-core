@@ -37,7 +37,7 @@ module.exports = {
     hardhat: {
       forking: {
         url: "https://eth-mainnet.alchemyapi.io/v2/" + process.env.ALCHEMY_KEY,
-        blockNumber: 14667418 // 2022-04-27
+        blockNumber: 15366446   // 2022-04-27
       }
     },
     polygon: {
@@ -55,6 +55,18 @@ module.exports = {
     arbitrum: {
       url: "https://rpc.ankr.com/arbitrum",
       chainId: 42161
+    },
+    goerli: {
+      url: process.env.GOERLI_ALCHEMY_KEY,
+      chainId: 5,
+      
+    }
+  },
+  etherscan: {
+    // Your API key for Etherscan
+    // Obtain one at https://etherscan.io/
+    apiKey: {
+      goerli: process.env.ETHERSCAN_API_KEY_MAINNET
     }
   }
 };

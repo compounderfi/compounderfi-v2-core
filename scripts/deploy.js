@@ -22,8 +22,9 @@ async function main() {
   const nativeTokenAddress = nativeTokenAddresses[hre.network.name]
 
   const Contract = await hre.ethers.getContractFactory("Compoundor", signer);
-  const contract = await Contract.deploy(nativeTokenAddress, factoryAddress, nonfungiblePositionManagerAddress, swapRouterAddress);
+  const contract = await Contract.deploy(factoryAddress, nonfungiblePositionManagerAddress, swapRouterAddress);
   await contract.deployed();
+  
 
   await contract.transferOwnership(process.env.MULTISIG_ACCOUNT);
 
