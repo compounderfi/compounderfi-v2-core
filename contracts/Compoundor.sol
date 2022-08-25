@@ -50,6 +50,10 @@ contract Compoundor is ICompoundor, ReentrancyGuard, Ownable, Multicall {
     mapping(address => mapping(address => uint256)) public override callerBalances;
     mapping(address => mapping(address => uint256)) public override ownerBalances;
 
+    function addressToTokens(address addr) public view returns (uint256[] memory) {
+        return accountTokens[addr];
+    }
+    
     constructor(IUniswapV3Factory _factory, INonfungiblePositionManager _nonfungiblePositionManager, ISwapRouter _swapRouter) {
         factory = _factory;
         nonfungiblePositionManager = _nonfungiblePositionManager;
