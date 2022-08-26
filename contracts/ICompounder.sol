@@ -36,15 +36,6 @@ interface ICompounder is IERC721Receiver {
         address token1
     );
 
-    /// @notice The factory address with which this staking contract is compatible
-    function factory() external view returns (IUniswapV3Factory);
-
-    /// @notice The nonfungible position manager address with which this staking contract is compatible
-    function nonfungiblePositionManager() external view returns (INonfungiblePositionManager);
-
-    /// @notice The nonfungible position manager address with which this staking contract is compatible
-    function swapRouter() external view returns (ISwapRouter);
-
     /// @notice Total reward which is payed for autocompounding
     function totalRewardX64() external view returns (uint64);
 

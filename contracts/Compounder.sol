@@ -35,9 +35,9 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
     uint64 public override compounderRewardX64 = MAX_REWARD_X64 / 2; // 1%
 
     // uniswap v3 components
-    IUniswapV3Factory public immutable override factory;
-    INonfungiblePositionManager public immutable override nonfungiblePositionManager;
-    ISwapRouter public immutable override swapRouter;
+    IUniswapV3Factory private immutable factory;
+    INonfungiblePositionManager private immutable nonfungiblePositionManager;
+    ISwapRouter private immutable swapRouter;
 
     mapping(uint256 => address) public override ownerOf;
     mapping(address => uint256[]) public override accountTokens;
