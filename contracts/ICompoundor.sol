@@ -54,6 +54,9 @@ interface ICompoundor is IERC721Receiver {
     /// @notice Total reward which is payed for autocompounding
     function totalRewardX64() external view returns (uint64);
 
+    /// @notice Total reward which is payed for autocompounding with swaps
+    function swapTotalRewardX64() external view returns (uint64);
+
     /// @notice Reward which is payed to compounder - less or equal to totalRewardX64
     function compounderRewardX64() external view returns (uint64);
 
@@ -124,7 +127,7 @@ interface ICompoundor is IERC721Receiver {
     function withdrawBalanceCaller(address token, address to, uint256 amount) external;
 
     /// @notice how reward should be converted
-    enum RewardConversion { NONE, TOKEN_0, TOKEN_1 }
+    enum RewardConversion { TOKEN_0, TOKEN_1 }
 
     /// @notice params for autoCompound()
     struct AutoCompoundParams {

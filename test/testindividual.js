@@ -52,8 +52,8 @@ describe("AutoCompounder Tests", function () {
         await contract.connect(owner).autoCompound(
             {
                 tokenId: tokenID,
-                rewardConversion: 2,
-                doSwap: true 
+                rewardConversion: 1,
+                doSwap: false 
             }
         )
   });
