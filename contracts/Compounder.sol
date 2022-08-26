@@ -159,8 +159,8 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
                 fees0 = state.amount0.mul(totalRewardX64).div(Q64);
                 state.amount0 = state.amount0.sub(fees0);
             } else {
-                fees1 = state.amount0.mul(totalRewardX64).div(Q64);
-                state.amount0 = state.amount0.sub(fees1);
+                fees1 = state.amount1.mul(totalRewardX64).div(Q64);
+                state.amount1 = state.amount1.sub(fees1);
             }
         }
         
