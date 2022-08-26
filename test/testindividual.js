@@ -2,6 +2,7 @@ const { BigNumber } = require("@ethersproject/bignumber");
 const { expect, assert } = require("chai");
 const { ethers } = require("hardhat");
 const hre = require("hardhat");
+const { boolean } = require("hardhat/internal/core/params/argumentTypes");
 
 const wethAddress = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
 const usdcAddress = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
@@ -48,14 +49,23 @@ describe("AutoCompounder Tests", function () {
         });
 
         await currentContract.connect(mainSigner).withdrawToken(tokenID, contract.address, false, 0)
-
-        await contract.connect(owner).autoCompound(
-            {
-                tokenId: tokenID,
-                rewardConversion: 1,
-                doSwap: false 
-            }
-        )
+        
+        let totalgas = 0;
+        for (let i = 0; i < 2; i++) {
+          for (let z = 0; z < 2; z++) {
+            const test = await contract.connect(owner).callStatic.autoCompound(
+              {
+                  tokenId: tokenID,
+                  rewardConversion: i,
+                  doSwap: z % 2 == 0 
+              }
+            )
+    
+              const gas = test["gas"]
+              totalgas += gas.toNumber();
+          }
+        }
+        console.log(totalgas/4);
   });
     
   async function impersonateAccountAndGetSigner(address) {

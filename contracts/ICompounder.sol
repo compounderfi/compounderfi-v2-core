@@ -50,7 +50,7 @@ interface ICompounder is IERC721Receiver {
      * @param _totalRewardX64 new total reward (can't be higher than current total reward)
      * @param _compounderRewardX64 new compounder reward
      */
-    function setReward(uint64 _totalRewardX64, uint64 _compounderRewardX64) external;
+    //function setReward(uint64 _totalRewardX64, uint64 _compounderRewardX64) external;
 
     /// @notice Owner of a managed NFT
     function ownerOf(uint256 tokenId) external view returns (address owner);
@@ -126,8 +126,9 @@ interface ICompounder is IERC721Receiver {
      * @return reward1 Amount of token1 caller recieves
      * @return compounded0 Amount of token0 that was compounded
      * @return compounded1 Amount of token1 that was compounded
+     * @return gas Amount of gas that was used
      */
-    function autoCompound(AutoCompoundParams calldata params) external returns (uint256 reward0, uint256 reward1, uint256 compounded0, uint256 compounded1);
+    function autoCompound(AutoCompoundParams calldata params) external returns (uint256 reward0, uint256 reward1, uint256 compounded0, uint256 compounded1, uint256 gas);
 
     struct DecreaseLiquidityAndCollectParams {
         uint256 tokenId;

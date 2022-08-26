@@ -23,16 +23,14 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
     uint128 constant Q64 = 2**64;
     uint128 constant Q96 = 2**96;
 
-    // max reward
-    uint64 constant public MAX_REWARD_X64 = uint64(Q64 / 40); // 2.5%
-
     // max positions
     uint32 constant public MAX_POSITIONS_PER_ADDRESS = 100;
 
-    // changable config values
-    uint64 public override swapTotalRewardX64 = MAX_REWARD_X64; // 2.5%
-    uint64 public override totalRewardX64 = uint64(Q64 / 50);  // 2%
-    uint64 public override compounderRewardX64 = MAX_REWARD_X64 / 2; // 1%
+    uint64 public constant override swapTotalRewardX64 = uint64(Q64 / 40); // 2.5%
+    uint64 public constant override totalRewardX64 = uint64(Q64 / 50);  // 2%
+
+    //protocol takes a fifth, aka callers get 1.6% for no-swap compounds and 2% for swaps
+    uint64 public constant override compounderRewardX64 = 5;
 
     // uniswap v3 components
     IUniswapV3Factory private immutable factory;
@@ -44,21 +42,18 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
     mapping(address => mapping(address => uint256)) public override callerBalances;
     mapping(address => mapping(address => uint256)) public override ownerBalances;
 
-    function addressToTokens(address addr) public view returns (uint256[] memory) {
-        return accountTokens[addr];
-    }
-
     constructor(IUniswapV3Factory _factory, INonfungiblePositionManager _nonfungiblePositionManager, ISwapRouter _swapRouter) {
         factory = _factory;
         nonfungiblePositionManager = _nonfungiblePositionManager;
         swapRouter = _swapRouter;
     }
-
+    
     /**
      * @notice Management method to lower reward or change ratio between total and compounder reward (onlyOwner)
      * @param _totalRewardX64 new total reward (can't be higher than current total reward)
      * @param _compounderRewardX64 new compounder reward
      */
+    /*
     function setReward(uint64 _totalRewardX64, uint64 _compounderRewardX64) external override onlyOwner {
         require(_totalRewardX64 <= totalRewardX64, ">totalRewardX64");
         require(_compounderRewardX64 <= _totalRewardX64, "compounderRewardX64>totalRewardX64");
@@ -66,7 +61,7 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
         compounderRewardX64 = _compounderRewardX64;
         emit RewardUpdated(msg.sender, _totalRewardX64, _compounderRewardX64);
     }
-
+    */
     /**
      * @dev When receiving a Uniswap V3 NFT, deposits token with `from` as owner
      */
@@ -108,8 +103,9 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
     function autoCompound(AutoCompoundParams memory params) 
         override 
         external
-        returns (uint256 fees0, uint256 fees1, uint256 compounded0, uint256 compounded1) 
-    {
+        returns (uint256 fees0, uint256 fees1, uint256 compounded0, uint256 compounded1, uint256 gas) 
+    {   
+        uint256 startGas = gasleft();
         AutoCompoundState memory state;
         state.tokenOwner = ownerOf[params.tokenId];
 
@@ -120,9 +116,17 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
             INonfungiblePositionManager.CollectParams(params.tokenId, address(this), type(uint128).max, type(uint128).max)
         );
 
-        // get position info
-        (, , state.token0, state.token1, state.fee, state.tickLower, state.tickUpper, , , , , ) = 
+        if(params.doSwap) {
+            (, , state.token0, state.token1, state.fee, state.tickLower, state.tickUpper, , , , , ) = 
             nonfungiblePositionManager.positions(params.tokenId);
+        } else {
+            (, , state.token0, state.token1, , , , , , , , ) = 
+            nonfungiblePositionManager.positions(params.tokenId);
+        }
+        
+        
+        // get position info
+        
         
         // only if there are balances to work with - start autocompounding process
         require(state.amount0 > 0 || state.amount1 > 0);
@@ -154,6 +158,7 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
             );
             (state.amount0, state.amount1, fees0, fees1) = 
                 _swapToPriceRatio(swapParams);
+
         } else {
             if (params.rewardConversion == RewardConversion.TOKEN_0) {
                 fees0 = state.amount0.mul(totalRewardX64).div(Q64);
@@ -203,10 +208,8 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
             }
         }
 
-        
-
-        
         emit AutoCompounded(msg.sender, params.tokenId, compounded0, compounded1, fees0, fees1, state.token0, state.token1);
+        gas = startGas - gasleft();
     }
 
     /**
@@ -307,8 +310,9 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
         _withdrawBalanceInternalCaller(tokenAddress, to, balance, amount);
     }
 
-
-
+    function addressToTokens(address addr) public view returns (uint256[] memory) {
+        return accountTokens[addr];
+    }
 
     //for caller only
     function _increaseBalanceCaller(address account, address tokenAddress, uint256 amount) internal {
