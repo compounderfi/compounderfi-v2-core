@@ -14,22 +14,15 @@ import "./external/uniswap/v3-core/libraries/TickMath.sol";
 import "./external/uniswap/v3-periphery/libraries/LiquidityAmounts.sol";
 import "./external/uniswap/v3-periphery/interfaces/INonfungiblePositionManager.sol";
 
-import "./ICompoundor.sol";
+import "./ICompounder.sol";
 
-/*                                                  __          
-  _________  ____ ___  ____  ____  __  ______  ____/ /___  _____
- / ___/ __ \/ __ `__ \/ __ \/ __ \/ / / / __ \/ __  / __ \/ ___/
-/ /__/ /_/ / / / / / / /_/ / /_/ / /_/ / / / / /_/ / /_/ / /    
-\___/\____/_/ /_/ /_/ .___/\____/\__,_/_/ /_/\__,_/\____/_/     
-                   /_/
-*/                                        
-contract Compoundor is ICompoundor, ReentrancyGuard, Ownable, Multicall {
+contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
 
     using SafeMath for uint256;
 
     uint128 constant Q64 = 2**64;
     uint128 constant Q96 = 2**96;
-    uint256 constant Q192 = 2**192;
+
     // max reward
     uint64 constant public MAX_REWARD_X64 = uint64(Q64 / 40); // 2.5%
 
@@ -88,15 +81,6 @@ contract Compoundor is ICompoundor, ReentrancyGuard, Ownable, Multicall {
         _addToken(tokenId, from);
         emit TokenDeposited(from, tokenId);
         return this.onERC721Received.selector;
-    }
-
-    /**
-     * @notice Returns amount of NFTs for a given account
-     * @param account Address of account
-     * @return balance amount of NFTs for account
-     */
-    function balanceOf(address account) override external view returns (uint256 balance) {
-        return accountTokens[account].length;
     }
 
     // state used during autocompound execution
@@ -167,9 +151,19 @@ contract Compoundor is ICompoundor, ReentrancyGuard, Ownable, Multicall {
             params.doSwap
         );
 
-        // checks oracle for fair price - swaps to position ratio (considering estimated reward) - calculates max amount to be added
-        (state.amount0, state.amount1, fees0, fees1) = 
-            _swapToPriceRatio(swapParams);
+        if (params.doSwap) {
+            // checks oracle for fair price - swaps to position ratio (considering estimated reward) - calculates max amount to be added
+            (state.amount0, state.amount1, fees0, fees1) = 
+                _swapToPriceRatio(swapParams);
+        } else {
+            if (params.rewardConversion == RewardConversion.TOKEN_0) {
+                fees0 = state.amount0.mul(totalRewardX64).div(Q64);
+                state.amount0 = state.amount0.sub(fees0);
+            } else {
+                fees1 = state.amount0.mul(totalRewardX64).div(Q64);
+                state.amount0 = state.amount0.sub(fees1);
+            }
+        }
         
         // deposit liquidity into tokenId
         if (state.amount0 > 0 || state.amount1 > 0) {
@@ -193,7 +187,7 @@ contract Compoundor is ICompoundor, ReentrancyGuard, Ownable, Multicall {
             if (state.excess1 > 0) {
                 _setBalanceNoEventOwner(state.tokenOwner, state.token1, 0);
             }
-            
+
             if (params.rewardConversion == RewardConversion.TOKEN_0) {
                 _increaseBalanceCaller(msg.sender, state.token0, state.amount0.sub(compounded0).add(fees0));
             } else {
@@ -295,52 +289,52 @@ contract Compoundor is ICompoundor, ReentrancyGuard, Ownable, Multicall {
 
     /**
      * @notice Withdraws token balance for a address and token
-     * @param token Address of token to withdraw
+     * @param tokenAddress Address of token to withdraw
      * @param to Address to send to
      * @param amount amount to withdraw
      */
 
     //for owner only
-    function withdrawBalanceOwner(address token, address to, uint256 amount) external override nonReentrant {
+    function withdrawBalanceOwner(address tokenAddress, address to, uint256 amount) external override nonReentrant {
         require(amount > 0, "amount==0");
-        uint256 balance = ownerBalances[msg.sender][token];
-        _withdrawBalanceInternalOwner(token, to, balance, amount);
+        uint256 balance = ownerBalances[msg.sender][tokenAddress];
+        _withdrawBalanceInternalOwner(tokenAddress, to, balance, amount);
     }
 
     //for caller only
-    function withdrawBalanceCaller(address token, address to, uint256 amount) external override nonReentrant {
+    function withdrawBalanceCaller(address tokenAddress, address to, uint256 amount) external override nonReentrant {
         require(amount > 0, "amount==0");
-        uint256 balance = callerBalances[msg.sender][token];
-        _withdrawBalanceInternalOwner(token, to, balance, amount);
+        uint256 balance = callerBalances[msg.sender][tokenAddress];
+        _withdrawBalanceInternalCaller(tokenAddress, to, balance, amount);
     }
 
 
 
 
     //for caller only
-    function _increaseBalanceCaller(address account, address token, uint256 amount) internal {
+    function _increaseBalanceCaller(address account, address tokenAddress, uint256 amount) internal {
         if(amount > 0) {
-            callerBalances[account][token] = callerBalances[account][token].add(amount);
-            emit BalanceAdded(account, token, amount);
+            callerBalances[account][tokenAddress] = callerBalances[account][tokenAddress].add(amount);
+            emit BalanceAdded(account, tokenAddress, amount);
         }
     }
 
     //for owner only
-    function _setBalanceOwner(address account, address token, uint256 amount) internal {
-        uint currentBalance = ownerBalances[account][token];
+    function _setBalanceOwner(address account, address tokenAddress, uint256 amount) internal {
+        uint currentBalance = ownerBalances[account][tokenAddress];
         
         if (amount > currentBalance) {
-            ownerBalances[account][token] = amount;
-            emit BalanceAdded(account, token, amount.sub(currentBalance));
+            ownerBalances[account][tokenAddress] = amount;
+            emit BalanceAdded(account, tokenAddress, amount.sub(currentBalance));
         } else if (amount < currentBalance) {
-            ownerBalances[account][token] = amount;
-            emit BalanceRemoved(account, token, currentBalance.sub(amount));
+            ownerBalances[account][tokenAddress] = amount;
+            emit BalanceRemoved(account, tokenAddress, currentBalance.sub(amount));
         }
     }
 
     //for owner only
-    function _setBalanceNoEventOwner(address account, address token, uint256 amount) internal {
-        ownerBalances[account][token] = amount;
+    function _setBalanceNoEventOwner(address account, address tokenAddress, uint256 amount) internal {
+        ownerBalances[account][tokenAddress] = amount;
     }
 
 
@@ -357,38 +351,26 @@ contract Compoundor is ICompoundor, ReentrancyGuard, Ownable, Multicall {
         }
     }
 
-    //for caller only
-    function _withdrawFullBalancesInternalCaller(address token0, address token1, address to) internal {
-        uint256 balance0 = callerBalances[msg.sender][token0];
-        if (balance0 > 0) {
-            _withdrawBalanceInternalCaller(token0, to, balance0, balance0);
-        }
-        uint256 balance1 = callerBalances[msg.sender][token1];
-        if (balance1 > 0) {
-            _withdrawBalanceInternalCaller(token1, to, balance1, balance1);
-        }
-    }
-
     //for owner only
-    function _withdrawBalanceInternalOwner(address token, address to, uint256 balance, uint256 amount) internal {
+    function _withdrawBalanceInternalOwner(address tokenAddress, address to, uint256 balance, uint256 amount) internal {
         require(amount <= balance, "amount>balance");
-        ownerBalances[msg.sender][token] = ownerBalances[msg.sender][token].sub(amount);
-        emit BalanceRemoved(msg.sender, token, amount);
-        SafeERC20.safeTransfer(IERC20(token), to, amount);
-        emit BalanceWithdrawn(msg.sender, token, to, amount);
+        ownerBalances[msg.sender][tokenAddress] = ownerBalances[msg.sender][tokenAddress].sub(amount);
+        emit BalanceRemoved(msg.sender, tokenAddress, amount);
+        SafeERC20.safeTransfer(IERC20(tokenAddress), to, amount);
+        emit BalanceWithdrawn(msg.sender, tokenAddress, to, amount);
     }
 
     //for caller only
-    function _withdrawBalanceInternalCaller(address token, address to, uint256 balance, uint256 amount) internal {
+    function _withdrawBalanceInternalCaller(address tokenAddress, address to, uint256 balance, uint256 amount) internal {
         require(amount <= balance, "amount>balance");
-        callerBalances[msg.sender][token] = callerBalances[msg.sender][token].sub(amount);
+        callerBalances[msg.sender][tokenAddress] = callerBalances[msg.sender][tokenAddress].sub(amount);
 
         uint64 protocolRewardX64 = totalRewardX64 - compounderRewardX64;
         uint256 protocolFees = amount.mul(protocolRewardX64).div(totalRewardX64);
         uint256 callerFees = amount.sub(protocolFees);
 
-        SafeERC20.safeTransfer(IERC20(token), to, callerFees);
-        SafeERC20.safeTransfer(IERC20(token), owner(), protocolFees);
+        SafeERC20.safeTransfer(IERC20(tokenAddress), to, callerFees);
+        SafeERC20.safeTransfer(IERC20(tokenAddress), owner(), protocolFees);
     }
 
     function _addToken(uint256 tokenId, address account) internal {
@@ -503,75 +485,66 @@ contract Compoundor is ICompoundor, ReentrancyGuard, Ownable, Multicall {
         // *a smaller pool will not yield significant fees
         
         state.priceX96 = uint256(state.sqrtPriceX96).mul(state.sqrtPriceX96).div(Q96);
-
-        if (params.rewardToken == RewardConversion.TOKEN_0) {
-            fees0 = amount0.mul(totalRewardX64).div(Q64);
-            amount0 = amount0.sub(fees0);
-        } else {
-            fees1 = amount1.mul(totalRewardX64).div(Q64);
-            amount1 = amount1.sub(fees1);
-        }
         
 
         // swap to correct proportions is requested
-        if (params.doSwap) {
-            if (params.rewardToken == RewardConversion.TOKEN_0) {
-                fees0 = amount0.mul(swapTotalRewardX64).div(Q64);
-                amount0 = amount0.sub(fees0);
-            } else {
-                fees1 = amount1.mul(swapTotalRewardX64).div(Q64);
-                amount1 = amount1.sub(fees1);
-            }
-            // calculate ideal position amounts
-            state.sqrtPriceX96Lower = TickMath.getSqrtRatioAtTick(params.tickLower);
-            state.sqrtPriceX96Upper = TickMath.getSqrtRatioAtTick(params.tickUpper);
-
-            (state.positionAmount0, state.positionAmount1) = LiquidityAmounts.getAmountsForLiquidity(
-                                                                state.sqrtPriceX96, 
-                                                                state.sqrtPriceX96Lower, 
-                                                                state.sqrtPriceX96Upper, 
-                                                                Q96); // dummy value we just need ratio
-
-            // calculate how much of the position needs to be converted to the other token
-            if (state.positionAmount0 == 0) {
-                state.delta0 = amount0;
-                state.sell0 = true;
-            } else if (state.positionAmount1 == 0) {
-                state.delta0 = amount1.mul(Q96).div(state.priceX96);
-                state.sell0 = false;
-            } else {
-                state.amountRatioX96 = state.positionAmount0.mul(Q96).div(state.positionAmount1);
-                state.sell0 = (state.amountRatioX96.mul(amount1) < amount0.mul(Q96));
-                if (state.sell0) {
-                    state.delta0 = amount0.mul(Q96).sub(state.amountRatioX96.mul(amount1)).div(state.amountRatioX96.mul(state.priceX96).div(Q96).add(Q96));
-                    
-                } else {
-                    state.delta0 = state.amountRatioX96.mul(amount1).sub(amount0.mul(Q96)).div(state.amountRatioX96.mul(state.priceX96).div(Q96).add(Q96));
-                    
-                }
-            }
-
-            if (state.delta0 > 0) {
-                if (state.sell0) {
-                    uint256 amountOut = _swap(
-                                            abi.encodePacked(params.token0, params.fee, params.token1), 
-                                            state.delta0, 
-                                            params.deadline
-                                        );
-                    amount0 = amount0.sub(state.delta0);
-                    amount1 = amount1.add(amountOut);
-                } else {
-                    state.delta1 = state.delta0.mul(state.priceX96).div(Q96);
-                    // prevent possible rounding to 0 issue
-                    if (state.delta1 > 0) {
-                        uint256 amountOut = _swap(abi.encodePacked(params.token1, params.fee, params.token0), state.delta1, params.deadline);
-                        amount0 = amount0.add(amountOut);
-                        amount1 = amount1.sub(state.delta1);
-                    }
-                }
-            }
-            
+        if (params.rewardToken == RewardConversion.TOKEN_0) {
+            fees0 = amount0.mul(swapTotalRewardX64).div(Q64);
+            amount0 = amount0.sub(fees0);
+        } else {
+            fees1 = amount1.mul(swapTotalRewardX64).div(Q64);
+            amount1 = amount1.sub(fees1);
         }
+        // calculate ideal position amounts
+        state.sqrtPriceX96Lower = TickMath.getSqrtRatioAtTick(params.tickLower);
+        state.sqrtPriceX96Upper = TickMath.getSqrtRatioAtTick(params.tickUpper);
+
+        (state.positionAmount0, state.positionAmount1) = LiquidityAmounts.getAmountsForLiquidity(
+                                                            state.sqrtPriceX96, 
+                                                            state.sqrtPriceX96Lower, 
+                                                            state.sqrtPriceX96Upper, 
+                                                            Q96); // dummy value we just need ratio
+
+        // calculate how much of the position needs to be converted to the other token
+        if (state.positionAmount0 == 0) {
+            state.delta0 = amount0;
+            state.sell0 = true;
+        } else if (state.positionAmount1 == 0) {
+            state.delta0 = amount1.mul(Q96).div(state.priceX96);
+            state.sell0 = false;
+        } else {
+            state.amountRatioX96 = state.positionAmount0.mul(Q96).div(state.positionAmount1);
+            state.sell0 = (state.amountRatioX96.mul(amount1) < amount0.mul(Q96));
+            if (state.sell0) {
+                state.delta0 = amount0.mul(Q96).sub(state.amountRatioX96.mul(amount1)).div(state.amountRatioX96.mul(state.priceX96).div(Q96).add(Q96));
+                
+            } else {
+                state.delta0 = state.amountRatioX96.mul(amount1).sub(amount0.mul(Q96)).div(state.amountRatioX96.mul(state.priceX96).div(Q96).add(Q96));
+                
+            }
+        }
+
+        if (state.delta0 > 0) {
+            if (state.sell0) {
+                uint256 amountOut = _swap(
+                                        abi.encodePacked(params.token0, params.fee, params.token1), 
+                                        state.delta0, 
+                                        params.deadline
+                                    );
+                amount0 = amount0.sub(state.delta0);
+                amount1 = amount1.add(amountOut);
+            } else {
+                state.delta1 = state.delta0.mul(state.priceX96).div(Q96);
+                // prevent possible rounding to 0 issue
+                if (state.delta1 > 0) {
+                    uint256 amountOut = _swap(abi.encodePacked(params.token1, params.fee, params.token0), state.delta1, params.deadline);
+                    amount0 = amount0.add(amountOut);
+                    amount1 = amount1.sub(state.delta1);
+                }
+            }
+        }
+            
+        
         
     }
 

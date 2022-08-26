@@ -22,12 +22,12 @@ describe("AutoCompounder Tests", function () {
   let contract, nonfungiblePositionManager, factory, owner, otherAccount;
 
   beforeEach(async function () {
-      const Contract = await ethers.getContractFactory("Compoundor");
+      const Contract = await ethers.getContractFactory("Compounder");
       contract = await Contract.deploy(factoryAddress, nonfungiblePositionManagerAddress, swapRouterAddress);
       await contract.deployed();
 
       // use interface instead of contract to test
-      contract = await ethers.getContractAt("ICompoundor", contract.address)
+      contract = await ethers.getContractAt("ICompounder", contract.address)
 
       nonfungiblePositionManager = await ethers.getContractAt("INonfungiblePositionManager", nonfungiblePositionManagerAddress);
       factory = await ethers.getContractAt("IUniswapV3Factory", factoryAddress);
@@ -37,7 +37,7 @@ describe("AutoCompounder Tests", function () {
   it("Test", async function () {
         const tokenID = 291912;
         const currentAddress = "0x5411894842e610C4D0F6Ed4C232DA689400f94A1"
-        const currentContract = await ethers.getContractAt("Compoundor", currentAddress);
+        const currentContract = await ethers.getContractAt("Compounder", currentAddress);
         
         const ownerOfPosition = await currentContract.ownerOf(tokenID);
         const mainSigner = await impersonateAccountAndGetSigner(ownerOfPosition);
@@ -53,7 +53,7 @@ describe("AutoCompounder Tests", function () {
             {
                 tokenId: tokenID,
                 rewardConversion: 1,
-                doSwap: true 
+                doSwap: false 
             }
         )
   });

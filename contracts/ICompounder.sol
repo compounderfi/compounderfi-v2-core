@@ -9,14 +9,8 @@ import "./external/uniswap/v3-core/interfaces/IUniswapV3Factory.sol";
 import "./external/uniswap/v3-periphery/interfaces/INonfungiblePositionManager.sol";
 import "./external/uniswap/v3-periphery/interfaces/ISwapRouter.sol";
 
-/*                                                  __          
-  _________  ____ ___  ____  ____  __  ______  ____/ /___  _____
- / ___/ __ \/ __ `__ \/ __ \/ __ \/ / / / __ \/ __  / __ \/ ___/
-/ /__/ /_/ / / / / / / /_/ / /_/ / /_/ / / / / /_/ / /_/ / /    
-\___/\____/_/ /_/ /_/ .___/\____/\__,_/_/ /_/\__,_/\____/_/     
-                   /_/
-*/  
-interface ICompoundor is IERC721Receiver {
+
+interface ICompounder is IERC721Receiver {
    
     // config changes
     event RewardUpdated(address account, uint64 totalRewardX64, uint64 compounderRewardX64);
@@ -72,13 +66,6 @@ interface ICompoundor is IERC721Receiver {
 
     /// @notice Tokens of account by index
     function accountTokens(address account, uint256 index) external view returns (uint256 tokenId);
-
-    /**
-     * @notice Returns amount of NFTs for a given account
-     * @param account Address of account
-     * @return balance amount of NFTs for account
-     */
-    function balanceOf(address account) external view returns (uint256 balance);
 
     /**
      * @notice Returns balance of token of account for owners of positions
