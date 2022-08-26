@@ -103,9 +103,8 @@ contract Compoundor is ICompoundor, ReentrancyGuard, Ownable, Multicall {
     struct AutoCompoundState {
         uint256 amount0;
         uint256 amount1;
-        uint256 amount0Fees;
-        uint256 amount1Fees;
-        uint256 priceX96;
+        uint256 excess0;
+        uint256 excess1;
         address tokenOwner;
         address token0;
         address token1;
@@ -144,9 +143,16 @@ contract Compoundor is ICompoundor, ReentrancyGuard, Ownable, Multicall {
         // only if there are balances to work with - start autocompounding process
         require(state.amount0 > 0 || state.amount1 > 0);
             // add previous balances from given tokens
-            
-        state.amount0 = state.amount0.add(ownerBalances[state.tokenOwner][state.token0]);
-        state.amount1 = state.amount1.add(ownerBalances[state.tokenOwner][state.token1]);
+        
+        state.excess0 = ownerBalances[state.tokenOwner][state.token0];
+        state.excess1 = ownerBalances[state.tokenOwner][state.token1];
+
+        if (state.excess0 > 0) {
+            state.amount0 = state.amount0.add(state.excess0);
+        }
+        if ( state.excess1 > 0) {
+            state.amount1 = state.amount1.add(state.excess1);
+        }
 
         SwapParams memory swapParams = SwapParams(
             state.token0, 
@@ -162,7 +168,7 @@ contract Compoundor is ICompoundor, ReentrancyGuard, Ownable, Multicall {
         );
 
         // checks oracle for fair price - swaps to position ratio (considering estimated reward) - calculates max amount to be added
-        (state.amount0, state.amount1, state.priceX96, fees0, fees1) = 
+        (state.amount0, state.amount1, fees0, fees1) = 
             _swapToPriceRatio(swapParams);
         
         // deposit liquidity into tokenId
@@ -181,6 +187,13 @@ contract Compoundor is ICompoundor, ReentrancyGuard, Ownable, Multicall {
 
         // fees are always calculated based on added amount
         if (params.doSwap) {
+            if (state.excess0 > 0) {
+                _setBalanceNoEventOwner(state.tokenOwner, state.token0, 0);
+            }
+            if (state.excess1 > 0) {
+                _setBalanceNoEventOwner(state.tokenOwner, state.token1, 0);
+            }
+            
             if (params.rewardConversion == RewardConversion.TOKEN_0) {
                 _increaseBalanceCaller(msg.sender, state.token0, state.amount0.sub(compounded0).add(fees0));
             } else {
@@ -297,7 +310,7 @@ contract Compoundor is ICompoundor, ReentrancyGuard, Ownable, Multicall {
     //for caller only
     function withdrawBalanceCaller(address token, address to, uint256 amount) external override nonReentrant {
         require(amount > 0, "amount==0");
-        uint256 balance = ownerBalances[msg.sender][token];
+        uint256 balance = callerBalances[msg.sender][token];
         _withdrawBalanceInternalOwner(token, to, balance, amount);
     }
 
@@ -444,6 +457,7 @@ contract Compoundor is ICompoundor, ReentrancyGuard, Ownable, Multicall {
         bool sell0;
         bool twapOk;
         uint256 totalReward0;
+        uint256 priceX96;
     }
 
     struct SwapParams {
@@ -462,7 +476,7 @@ contract Compoundor is ICompoundor, ReentrancyGuard, Ownable, Multicall {
     // checks oracle for fair price - swaps to position ratio (considering estimated reward) - calculates max amount to be added
     function _swapToPriceRatio(SwapParams memory params) 
         internal 
-        returns (uint256 amount0, uint256 amount1, uint256 priceX96, uint256 fees0, uint256 fees1) 
+        returns (uint256 amount0, uint256 amount1, uint256 fees0, uint256 fees1) 
     {    
         SwapState memory state;
 
@@ -488,7 +502,7 @@ contract Compoundor is ICompoundor, ReentrancyGuard, Ownable, Multicall {
         // *a larger pool will not have significant slippage
         // *a smaller pool will not yield significant fees
         
-        priceX96 = uint256(state.sqrtPriceX96).mul(state.sqrtPriceX96).div(Q96);
+        state.priceX96 = uint256(state.sqrtPriceX96).mul(state.sqrtPriceX96).div(Q96);
 
         if (params.rewardToken == RewardConversion.TOKEN_0) {
             fees0 = amount0.mul(totalRewardX64).div(Q64);
@@ -523,16 +537,16 @@ contract Compoundor is ICompoundor, ReentrancyGuard, Ownable, Multicall {
                 state.delta0 = amount0;
                 state.sell0 = true;
             } else if (state.positionAmount1 == 0) {
-                state.delta0 = amount1.mul(Q96).div(priceX96);
+                state.delta0 = amount1.mul(Q96).div(state.priceX96);
                 state.sell0 = false;
             } else {
                 state.amountRatioX96 = state.positionAmount0.mul(Q96).div(state.positionAmount1);
                 state.sell0 = (state.amountRatioX96.mul(amount1) < amount0.mul(Q96));
                 if (state.sell0) {
-                    state.delta0 = amount0.mul(Q96).sub(state.amountRatioX96.mul(amount1)).div(state.amountRatioX96.mul(priceX96).div(Q96).add(Q96));
+                    state.delta0 = amount0.mul(Q96).sub(state.amountRatioX96.mul(amount1)).div(state.amountRatioX96.mul(state.priceX96).div(Q96).add(Q96));
                     
                 } else {
-                    state.delta0 = state.amountRatioX96.mul(amount1).sub(amount0.mul(Q96)).div(state.amountRatioX96.mul(priceX96).div(Q96).add(Q96));
+                    state.delta0 = state.amountRatioX96.mul(amount1).sub(amount0.mul(Q96)).div(state.amountRatioX96.mul(state.priceX96).div(Q96).add(Q96));
                     
                 }
             }
@@ -547,7 +561,7 @@ contract Compoundor is ICompoundor, ReentrancyGuard, Ownable, Multicall {
                     amount0 = amount0.sub(state.delta0);
                     amount1 = amount1.add(amountOut);
                 } else {
-                    state.delta1 = state.delta0.mul(priceX96).div(Q96);
+                    state.delta1 = state.delta0.mul(state.priceX96).div(Q96);
                     // prevent possible rounding to 0 issue
                     if (state.delta1 > 0) {
                         uint256 amountOut = _swap(abi.encodePacked(params.token1, params.fee, params.token0), state.delta1, params.deadline);

@@ -53,7 +53,7 @@ describe("AutoCompounder Tests", function () {
             {
                 tokenId: tokenID,
                 rewardConversion: 1,
-                doSwap: false 
+                doSwap: true 
             }
         )
   });
