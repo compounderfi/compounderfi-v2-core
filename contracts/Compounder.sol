@@ -31,7 +31,7 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
 
     // changable config values
     uint64 public override swapTotalRewardX64 = MAX_REWARD_X64; // 2.5%
-    uint64 public override totalRewardX64 = uint64(Q64 / 50); // 2%
+    uint64 public override totalRewardX64 = uint64(Q64 / 50);  // 2%
     uint64 public override compounderRewardX64 = MAX_REWARD_X64 / 2; // 1%
 
     // uniswap v3 components
@@ -134,25 +134,24 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
         if (state.excess0 > 0) {
             state.amount0 = state.amount0.add(state.excess0);
         }
-        if ( state.excess1 > 0) {
+        if (state.excess1 > 0) {
             state.amount1 = state.amount1.add(state.excess1);
         }
 
-        SwapParams memory swapParams = SwapParams(
-            state.token0, 
-            state.token1, 
-            state.fee, 
-            state.tickLower, 
-            state.tickUpper, 
-            state.amount0, 
-            state.amount1, 
-            block.timestamp, 
-            params.rewardConversion, 
-            params.doSwap
-        );
-
         if (params.doSwap) {
             // checks oracle for fair price - swaps to position ratio (considering estimated reward) - calculates max amount to be added
+            SwapParams memory swapParams = SwapParams(
+                state.token0, 
+                state.token1, 
+                state.fee, 
+                state.tickLower, 
+                state.tickUpper, 
+                state.amount0, 
+                state.amount1, 
+                block.timestamp, 
+                params.rewardConversion, 
+                params.doSwap
+            );
             (state.amount0, state.amount1, fees0, fees1) = 
                 _swapToPriceRatio(swapParams);
         } else {
