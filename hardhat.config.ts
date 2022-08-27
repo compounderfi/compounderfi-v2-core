@@ -1,25 +1,16 @@
-require('dotenv').config()
 
-require("@nomiclabs/hardhat-waffle");
-require("@nomiclabs/hardhat-etherscan");
-require("@nomiclabs/hardhat-ethers");
-require('hardhat-contract-sizer');
-require("hardhat-gas-reporter");
 
-task("accounts", "Prints the list of accounts", async (taskArgs, hre) => {
-  const accounts = await hre.ethers.getSigners();
+import { HardhatUserConfig } from "hardhat/config";
+import "dotenv/config";
 
-  for (const account of accounts) {
-    console.log(account.address);
-  }
-});
+import "@nomiclabs/hardhat-etherscan";
+import "@nomiclabs/hardhat-ethers";
+import "hardhat-gas-reporter";
 
 // You need to export an object to set up your config
 // Go to https://hardhat.org/config/ to learn more
 
-/**
- * @type import('hardhat/config').HardhatUserConfig
- */
+
 module.exports = {
   mocha: {
     timeout: 100000000

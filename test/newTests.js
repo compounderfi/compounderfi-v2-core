@@ -37,7 +37,7 @@ describe("AutoCompounder Tests", function () {
   });
   it("Test random positions", async function () {
     let x = 0;
-    for(let tokenId = 2; tokenId < 4; tokenId ++) {
+    for(let tokenId = 3; tokenId < 4; tokenId ++) {
         const ownerAddress = await nonfungiblePositionManager.ownerOf(tokenId);
         await owner.sendTransaction({
             to: ownerAddress,
@@ -63,29 +63,36 @@ describe("AutoCompounder Tests", function () {
   })
 
   it("test position transfer and withdrawal", async function () {
-    const nftId = 1
+    const nftId1 = 1
+    const nftId2 = 5
     const haydenSigner = await impersonateAccountAndGetSigner(haydenAddress);
 
-    await nonfungiblePositionManager.connect(haydenSigner)[["safeTransferFrom(address,address,uint256)"]](haydenAddress, contract.address, nftId);
-    const nftOwner = await contract.ownerOf(nftId);
-    const nftStored = await contract.accountTokens(haydenAddress, 0);
+    await nonfungiblePositionManager.connect(haydenSigner)[["safeTransferFrom(address,address,uint256)"]](haydenAddress, contract.address, nftId1);
+    await nonfungiblePositionManager.connect(haydenSigner)[["safeTransferFrom(address,address,uint256)"]](haydenAddress, contract.address, nftId2);
+
+    const nftOwner = await contract.ownerOf(nftId1);
+    const nftStored1 = await contract.accountTokens(haydenAddress, 0);
+    const nftStored2 = await contract.accountTokens(haydenAddress, 1);
+
     const openPositions = await contract.addressToTokens(haydenAddress);
 
-    console.log(openPositions)
+    const position1 = openPositions[0].toNumber();
+    const position2 = openPositions[1].toNumber();
+
     // expect owner to match og
     expect(nftOwner).to.equal(haydenAddress);
-    expect(nftStored).to.equal(nftId);
-    
-    
+    expect(nftStored1).to.equal(nftId1);
+    expect(nftStored2).to.equal(nftId2);
 
-
+    expect(position1).to.equal(nftId1);
+    expect(position2).to.equal(nftId2);
     // withdraw token
-    await contract.connect(haydenSigner).withdrawToken(nftId, haydenAddress, true, 0);
+    await contract.connect(haydenSigner).withdrawToken(nftId1, haydenAddress, true, 0);
 
     // token no longer in contract
-    expect(await contract.connect(haydenSigner).callStatic.ownerOf(nftId)).to.equal(zeroAddress);
-    expect(await contract.balanceOf(haydenAddress)).to.equal(0);
+    expect(await contract.callStatic.ownerOf(nftId1)).to.equal(zeroAddress);
 
+    
   })
   
     
