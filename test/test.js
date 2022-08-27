@@ -34,7 +34,7 @@ describe("AutoCompounder Tests", function () {
 
       [owner, otherAccount] = await ethers.getSigners();
   });
-  /*
+  
   it("Test setReward", async function () {
 
     const totalReward = await contract.totalRewardX64();
@@ -106,8 +106,8 @@ describe("AutoCompounder Tests", function () {
     expect(await contract.balanceOf(haydenAddress)).to.equal(0);
 
   })
-  */
-  /*
+  
+  
   it("Test one sided liquidity position with hayden position 1", async function () {
 
     const nftId = 1
@@ -241,7 +241,7 @@ describe("AutoCompounder Tests", function () {
 
 
   });
-  */
+  
   it("test withdraw balances for all roles", async function () {
 
 
@@ -290,7 +290,7 @@ describe("AutoCompounder Tests", function () {
     await contract.connect(nftOwnerSigner).withdrawToken(nftId, nftOwnerAddress, true, 0);
   });
 
-  /*
+  
   it("Test main functionality with hayden position 8", async function () {
 
     const nftId = 8
@@ -374,7 +374,7 @@ describe("AutoCompounder Tests", function () {
     expect(await contract.accountBalances(haydenAddress, usdtAddress)).to.equal(0);
 
   });
-  */
+  
 });
 
 async function getDeadline() {

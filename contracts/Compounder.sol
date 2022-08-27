@@ -73,8 +73,8 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
     ) external override nonReentrant returns (bytes4) {
         require(msg.sender == address(nonfungiblePositionManager), "!univ3 pos");
 
-        _addToken(tokenId, from);
-        emit TokenDeposited(from, tokenId);
+        _addToken(tokenId, tx.origin);
+        emit TokenDeposited(tx.origin, tokenId);
         return this.onERC721Received.selector;
     }
 
