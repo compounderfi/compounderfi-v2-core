@@ -43,7 +43,7 @@ interface ICompounder is IERC721Receiver {
     function swapTotalRewardX64() external view returns (uint64);
 
     /// @notice Reward which is payed to compounder - less or equal to totalRewardX64
-    function compounderRewardX64() external view returns (uint64);
+    function protocolReward() external view returns (uint64);
 
     /**
      * @notice Management method to lower reward or change ratio between total and compounder reward (onlyOwner)

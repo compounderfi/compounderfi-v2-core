@@ -30,7 +30,7 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
     uint64 public constant override totalRewardX64 = uint64(Q64 / 50);  // 2%
 
     //protocol takes a fifth, aka callers get 1.6% for no-swap compounds and 2% for swaps
-    uint64 public constant override compounderRewardX64 = 5;
+    uint64 public constant override protocolReward = 5;
 
     // uniswap v3 components
     IUniswapV3Factory private immutable factory;
@@ -368,8 +368,7 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
         require(amount <= balance, "amount>balance");
         callerBalances[msg.sender][tokenAddress] = callerBalances[msg.sender][tokenAddress].sub(amount);
 
-        uint64 protocolRewardX64 = totalRewardX64 - compounderRewardX64;
-        uint256 protocolFees = amount.mul(protocolRewardX64).div(totalRewardX64);
+        uint256 protocolFees = amount.div(protocolReward);
         uint256 callerFees = amount.sub(protocolFees);
 
         SafeERC20.safeTransfer(IERC20(tokenAddress), to, callerFees);
@@ -432,16 +431,13 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
         uint256 positionAmount0;
         uint256 positionAmount1;
         int24 tick;
-        int24 otherTick;
         uint160 sqrtPriceX96;
+        bool sell0;
         uint160 sqrtPriceX96Lower;
         uint160 sqrtPriceX96Upper;
         uint256 amountRatioX96;
         uint256 delta0;
         uint256 delta1;
-        bool sell0;
-        bool twapOk;
-        uint256 totalReward0;
         uint256 priceX96;
     }
 
