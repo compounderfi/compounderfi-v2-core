@@ -15,7 +15,7 @@ import "./external/uniswap/v3-periphery/libraries/LiquidityAmounts.sol";
 import "./external/uniswap/v3-periphery/interfaces/INonfungiblePositionManager.sol";
 
 import "./ICompounder.sol";
-//import "hardhat/console.sol";
+import "hardhat/console.sol";
 contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
 
     using SafeMath for uint256;
@@ -115,7 +115,7 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
         (state.amount0, state.amount1) = nonfungiblePositionManager.collect(
             INonfungiblePositionManager.CollectParams(params.tokenId, address(this), type(uint128).max, type(uint128).max)
         );
-
+        //console.log(state.amount0, state.amount1);
         if(params.doSwap) {
             (, , state.token0, state.token1, state.fee, state.tickLower, state.tickUpper, , , , , ) = 
             nonfungiblePositionManager.positions(params.tokenId);

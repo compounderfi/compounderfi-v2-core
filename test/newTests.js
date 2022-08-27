@@ -36,30 +36,29 @@ describe("AutoCompounder Tests", function () {
       [owner, otherAccount] = await ethers.getSigners();
   });
   it("Test random positions", async function () {
-    const minBalanceToSafeTransfer = BigNumber.from("500000").mul(await ethers.provider.getGasPrice()) 
-    
-    const positionIndices = [1, 4, 5, 6, 7, 8, 10];
-    let feesToken = 0;
-    let swap = false;
-    for(let i of positionIndices) {
-        const tokenId = await nonfungiblePositionManager.tokenByIndex(i);
+    let x = 0;
+    for(let tokenId = 1; tokenId < 30; tokenId ++) {
         const ownerAddress = await nonfungiblePositionManager.ownerOf(tokenId);
         await owner.sendTransaction({
             to: ownerAddress,
             value: ethers.utils.parseEther("1.0")
         });
-        const ownerSigner = await impersonateAccountAndGetSigner(ownerAddress)
-        await nonfungiblePositionManager.connect(ownerSigner)[["safeTransferFrom(address,address,uint256)"]](ownerAddress, contract.address, tokenId, { gasLimit: 500000 });
-        console.log(tokenId, feesToken, swap)
-        await contract.autoCompound( { tokenId, rewardConversion: feesToken, doSwap: swap });
+        const ownerSigner = await impersonateAccountAndGetSigner(ownerAddress);
+        const amountPossible = await nonfungiblePositionManager.connect(ownerSigner).callStatic.collect(
+          [tokenId, ownerAddress, 5, 5]
+        )
 
-
-        if (feesToken == 0 ) {
-            swap = !swap;
+        const amount0 = amountPossible["amount0"];
+        const amount1 = amountPossible["amount1"];
+        if (amount0 > 0 || amount1 > 0) {
+          await nonfungiblePositionManager.connect(ownerSigner)[["safeTransferFrom(address,address,uint256)"]](ownerAddress, contract.address, tokenId, { gasLimit: 500000 });
+          await contract.autoCompound( { tokenId, rewardConversion: x, doSwap: x%2==0 });
+          
+          x = (x + 1) % 2
         } else {
-            feesToken = (feesToken + 1) % 2;
+          console.log(`position ${tokenId} doesn't have enough to be compounded`)
         }
-      
+
     }
   })
   
