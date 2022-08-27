@@ -23,42 +23,37 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
     uint128 constant Q64 = 2**64;
     uint128 constant Q96 = 2**96;
 
-    // max reward
-    uint64 constant public MAX_REWARD_X64 = uint64(Q64 / 40); // 2.5%
-
     // max positions
     uint32 constant public MAX_POSITIONS_PER_ADDRESS = 100;
 
-    // changable config values
-    uint64 public override swapTotalRewardX64 = MAX_REWARD_X64; // 2.5%
-    uint64 public override totalRewardX64 = uint64(Q64 / 50); // 2%
-    uint64 public override compounderRewardX64 = MAX_REWARD_X64 / 2; // 1%
+    uint64 public constant override swapTotalRewardX64 = uint64(Q64 / 40); // 2.5%
+    uint64 public constant override totalRewardX64 = uint64(Q64 / 50);  // 2%
+
+    //protocol takes a fifth, aka callers get 1.6% for no-swap compounds and 2% for swaps
+    uint64 public constant override protocolReward = 5;
 
     // uniswap v3 components
-    IUniswapV3Factory public immutable override factory;
-    INonfungiblePositionManager public immutable override nonfungiblePositionManager;
-    ISwapRouter public immutable override swapRouter;
+    IUniswapV3Factory private immutable factory;
+    INonfungiblePositionManager private immutable nonfungiblePositionManager;
+    ISwapRouter private immutable swapRouter;
 
     mapping(uint256 => address) public override ownerOf;
     mapping(address => uint256[]) public override accountTokens;
     mapping(address => mapping(address => uint256)) public override callerBalances;
     mapping(address => mapping(address => uint256)) public override ownerBalances;
 
-    function addressToTokens(address addr) public view returns (uint256[] memory) {
-        return accountTokens[addr];
-    }
-
     constructor(IUniswapV3Factory _factory, INonfungiblePositionManager _nonfungiblePositionManager, ISwapRouter _swapRouter) {
         factory = _factory;
         nonfungiblePositionManager = _nonfungiblePositionManager;
         swapRouter = _swapRouter;
     }
-
+    
     /**
      * @notice Management method to lower reward or change ratio between total and compounder reward (onlyOwner)
      * @param _totalRewardX64 new total reward (can't be higher than current total reward)
      * @param _compounderRewardX64 new compounder reward
      */
+    /*
     function setReward(uint64 _totalRewardX64, uint64 _compounderRewardX64) external override onlyOwner {
         require(_totalRewardX64 <= totalRewardX64, ">totalRewardX64");
         require(_compounderRewardX64 <= _totalRewardX64, "compounderRewardX64>totalRewardX64");
@@ -66,7 +61,7 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
         compounderRewardX64 = _compounderRewardX64;
         emit RewardUpdated(msg.sender, _totalRewardX64, _compounderRewardX64);
     }
-
+    */
     /**
      * @dev When receiving a Uniswap V3 NFT, deposits token with `from` as owner
      */
@@ -108,8 +103,9 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
     function autoCompound(AutoCompoundParams memory params) 
         override 
         external
-        returns (uint256 fees0, uint256 fees1, uint256 compounded0, uint256 compounded1) 
-    {
+        returns (uint256 fees0, uint256 fees1, uint256 compounded0, uint256 compounded1, uint256 gas) 
+    {   
+        uint256 startGas = gasleft();
         AutoCompoundState memory state;
         state.tokenOwner = ownerOf[params.tokenId];
 
@@ -120,9 +116,17 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
             INonfungiblePositionManager.CollectParams(params.tokenId, address(this), type(uint128).max, type(uint128).max)
         );
 
-        // get position info
-        (, , state.token0, state.token1, state.fee, state.tickLower, state.tickUpper, , , , , ) = 
+        if(params.doSwap) {
+            (, , state.token0, state.token1, state.fee, state.tickLower, state.tickUpper, , , , , ) = 
             nonfungiblePositionManager.positions(params.tokenId);
+        } else {
+            (, , state.token0, state.token1, , , , , , , , ) = 
+            nonfungiblePositionManager.positions(params.tokenId);
+        }
+        
+        
+        // get position info
+        
         
         // only if there are balances to work with - start autocompounding process
         require(state.amount0 > 0 || state.amount1 > 0);
@@ -134,34 +138,34 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
         if (state.excess0 > 0) {
             state.amount0 = state.amount0.add(state.excess0);
         }
-        if ( state.excess1 > 0) {
+        if (state.excess1 > 0) {
             state.amount1 = state.amount1.add(state.excess1);
         }
 
-        SwapParams memory swapParams = SwapParams(
-            state.token0, 
-            state.token1, 
-            state.fee, 
-            state.tickLower, 
-            state.tickUpper, 
-            state.amount0, 
-            state.amount1, 
-            block.timestamp, 
-            params.rewardConversion, 
-            params.doSwap
-        );
-
         if (params.doSwap) {
             // checks oracle for fair price - swaps to position ratio (considering estimated reward) - calculates max amount to be added
+            SwapParams memory swapParams = SwapParams(
+                state.token0, 
+                state.token1, 
+                state.fee, 
+                state.tickLower, 
+                state.tickUpper, 
+                state.amount0, 
+                state.amount1, 
+                block.timestamp, 
+                params.rewardConversion, 
+                params.doSwap
+            );
             (state.amount0, state.amount1, fees0, fees1) = 
                 _swapToPriceRatio(swapParams);
+
         } else {
             if (params.rewardConversion == RewardConversion.TOKEN_0) {
                 fees0 = state.amount0.mul(totalRewardX64).div(Q64);
                 state.amount0 = state.amount0.sub(fees0);
             } else {
-                fees1 = state.amount0.mul(totalRewardX64).div(Q64);
-                state.amount0 = state.amount0.sub(fees1);
+                fees1 = state.amount1.mul(totalRewardX64).div(Q64);
+                state.amount1 = state.amount1.sub(fees1);
             }
         }
         
@@ -204,10 +208,8 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
             }
         }
 
-        
-
-        
         emit AutoCompounded(msg.sender, params.tokenId, compounded0, compounded1, fees0, fees1, state.token0, state.token1);
+        gas = startGas - gasleft();
     }
 
     /**
@@ -308,8 +310,9 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
         _withdrawBalanceInternalCaller(tokenAddress, to, balance, amount);
     }
 
-
-
+    function addressToTokens(address addr) public view returns (uint256[] memory) {
+        return accountTokens[addr];
+    }
 
     //for caller only
     function _increaseBalanceCaller(address account, address tokenAddress, uint256 amount) internal {
@@ -365,8 +368,7 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
         require(amount <= balance, "amount>balance");
         callerBalances[msg.sender][tokenAddress] = callerBalances[msg.sender][tokenAddress].sub(amount);
 
-        uint64 protocolRewardX64 = totalRewardX64 - compounderRewardX64;
-        uint256 protocolFees = amount.mul(protocolRewardX64).div(totalRewardX64);
+        uint256 protocolFees = amount.div(protocolReward);
         uint256 callerFees = amount.sub(protocolFees);
 
         SafeERC20.safeTransfer(IERC20(tokenAddress), to, callerFees);
@@ -429,16 +431,13 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
         uint256 positionAmount0;
         uint256 positionAmount1;
         int24 tick;
-        int24 otherTick;
         uint160 sqrtPriceX96;
+        bool sell0;
         uint160 sqrtPriceX96Lower;
         uint160 sqrtPriceX96Upper;
         uint256 amountRatioX96;
         uint256 delta0;
         uint256 delta1;
-        bool sell0;
-        bool twapOk;
-        uint256 totalReward0;
         uint256 priceX96;
     }
 

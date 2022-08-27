@@ -36,15 +36,6 @@ interface ICompounder is IERC721Receiver {
         address token1
     );
 
-    /// @notice The factory address with which this staking contract is compatible
-    function factory() external view returns (IUniswapV3Factory);
-
-    /// @notice The nonfungible position manager address with which this staking contract is compatible
-    function nonfungiblePositionManager() external view returns (INonfungiblePositionManager);
-
-    /// @notice The nonfungible position manager address with which this staking contract is compatible
-    function swapRouter() external view returns (ISwapRouter);
-
     /// @notice Total reward which is payed for autocompounding
     function totalRewardX64() external view returns (uint64);
 
@@ -52,14 +43,14 @@ interface ICompounder is IERC721Receiver {
     function swapTotalRewardX64() external view returns (uint64);
 
     /// @notice Reward which is payed to compounder - less or equal to totalRewardX64
-    function compounderRewardX64() external view returns (uint64);
+    function protocolReward() external view returns (uint64);
 
     /**
      * @notice Management method to lower reward or change ratio between total and compounder reward (onlyOwner)
      * @param _totalRewardX64 new total reward (can't be higher than current total reward)
      * @param _compounderRewardX64 new compounder reward
      */
-    function setReward(uint64 _totalRewardX64, uint64 _compounderRewardX64) external;
+    //function setReward(uint64 _totalRewardX64, uint64 _compounderRewardX64) external;
 
     /// @notice Owner of a managed NFT
     function ownerOf(uint256 tokenId) external view returns (address owner);
@@ -135,8 +126,9 @@ interface ICompounder is IERC721Receiver {
      * @return reward1 Amount of token1 caller recieves
      * @return compounded0 Amount of token0 that was compounded
      * @return compounded1 Amount of token1 that was compounded
+     * @return gas Amount of gas that was used
      */
-    function autoCompound(AutoCompoundParams calldata params) external returns (uint256 reward0, uint256 reward1, uint256 compounded0, uint256 compounded1);
+    function autoCompound(AutoCompoundParams calldata params) external returns (uint256 reward0, uint256 reward1, uint256 compounded0, uint256 compounded1, uint256 gas);
 
     struct DecreaseLiquidityAndCollectParams {
         uint256 tokenId;
