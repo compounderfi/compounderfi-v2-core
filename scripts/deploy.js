@@ -14,14 +14,12 @@ const nonfungiblePositionManagerAddress = "0xC36442b4a4522E871399CD717aBDD847Ab1
 const swapRouterAddress = "0xE592427A0AEce92De3Edee1F18E0157C05861564"
 
 async function main() {
-
+  //console.log(process.env.DEPLOYMENT_PRIVATE_KEY, hre.ethers.provider)
   const signer = new hre.ethers.Wallet(process.env.DEPLOYMENT_PRIVATE_KEY, hre.ethers.provider)
 
   console.log("Deploying on", hre.network.name)
 
-  const nativeTokenAddress = nativeTokenAddresses[hre.network.name]
-
-  const Contract = await hre.ethers.getContractFactory("Compoundor", signer);
+  const Contract = await hre.ethers.getContractFactory("Compounder", signer);
   const contract = await Contract.deploy(factoryAddress, nonfungiblePositionManagerAddress, swapRouterAddress);
   await contract.deployed();
   

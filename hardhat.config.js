@@ -59,6 +59,7 @@ module.exports = {
     goerli: {
       url: process.env.GOERLI_ALCHEMY_KEY,
       chainId: 5,
+      accounts: [process.env.DEPLOYMENT_PRIVATE_KEY]
       
     }
   },
@@ -70,6 +71,6 @@ module.exports = {
     }
   },
   gasReporter: {
-    enabled: false
+    enabled: true
   }
 };

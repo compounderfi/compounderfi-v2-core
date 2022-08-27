@@ -15,7 +15,7 @@ import "./external/uniswap/v3-periphery/libraries/LiquidityAmounts.sol";
 import "./external/uniswap/v3-periphery/interfaces/INonfungiblePositionManager.sol";
 
 import "./ICompounder.sol";
-
+//import "hardhat/console.sol";
 contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
 
     using SafeMath for uint256;
@@ -67,7 +67,7 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
      */
     function onERC721Received(
         address,
-        address from,
+        address,
         uint256 tokenId,
         bytes calldata
     ) external override nonReentrant returns (bytes4) {
@@ -123,14 +123,10 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
             (, , state.token0, state.token1, , , , , , , , ) = 
             nonfungiblePositionManager.positions(params.tokenId);
         }
+    
         
-        
-        // get position info
-        
-        
-        // only if there are balances to work with - start autocompounding process
-        require(state.amount0 > 0 || state.amount1 > 0);
-            // add previous balances from given tokens
+        //console.log(state.amount0, state.amount1);
+
         
         state.excess0 = ownerBalances[state.tokenOwner][state.token0];
         state.excess1 = ownerBalances[state.tokenOwner][state.token1];
@@ -142,6 +138,7 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
             state.amount1 = state.amount1.add(state.excess1);
         }
 
+        require(state.amount0 > 0 || state.amount1 > 0);
         if (params.doSwap) {
             // checks oracle for fair price - swaps to position ratio (considering estimated reward) - calculates max amount to be added
             SwapParams memory swapParams = SwapParams(

@@ -37,26 +37,29 @@ describe("AutoCompounder Tests", function () {
   });
   it("Test random positions", async function () {
     const minBalanceToSafeTransfer = BigNumber.from("500000").mul(await ethers.provider.getGasPrice()) 
-
-    const positionIndices = [345, 367, 14003, 54999, 144000];
+    
+    const positionIndices = [1, 4, 5, 6, 7, 8, 10];
     let feesToken = 0;
     let swap = false;
     for(let i of positionIndices) {
-        
-    //for (let i = totalSupply - 900; i < totalSupply - 500; i++) {
-      const tokenId = await nonfungiblePositionManager.tokenByIndex(i);
-      const ownerAddress = await nonfungiblePositionManager.ownerOf(tokenId);
-      const ownerBalance = await ethers.provider.getBalance(ownerAddress)
-      if (ownerBalance.gt(minBalanceToSafeTransfer)) {
+        const tokenId = await nonfungiblePositionManager.tokenByIndex(i);
+        const ownerAddress = await nonfungiblePositionManager.ownerOf(tokenId);
+        await owner.sendTransaction({
+            to: ownerAddress,
+            value: ethers.utils.parseEther("1.0")
+        });
         const ownerSigner = await impersonateAccountAndGetSigner(ownerAddress)
         await nonfungiblePositionManager.connect(ownerSigner)[["safeTransferFrom(address,address,uint256)"]](ownerAddress, contract.address, tokenId, { gasLimit: 500000 });
-        const deadline = await getDeadline();
-        const [reward0, reward1] = await contract.callStatic.autoCompound( { tokenId, rewardConversion: 0, doSwap: true });
+        console.log(tokenId, feesToken, swap)
         await contract.autoCompound( { tokenId, rewardConversion: feesToken, doSwap: swap });
-      }
 
-      swap = !swap;
-      feesToken = (feesToken + 1) % 2;
+
+        if (feesToken == 0 ) {
+            swap = !swap;
+        } else {
+            feesToken = (feesToken + 1) % 2;
+        }
+      
     }
   })
   
