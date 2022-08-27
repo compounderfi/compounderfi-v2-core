@@ -48,20 +48,10 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
         swapRouter = _swapRouter;
     }
     
-    /**
-     * @notice Management method to lower reward or change ratio between total and compounder reward (onlyOwner)
-     * @param _totalRewardX64 new total reward (can't be higher than current total reward)
-     * @param _compounderRewardX64 new compounder reward
-     */
-    /*
-    function setReward(uint64 _totalRewardX64, uint64 _compounderRewardX64) external override onlyOwner {
-        require(_totalRewardX64 <= totalRewardX64, ">totalRewardX64");
-        require(_compounderRewardX64 <= _totalRewardX64, "compounderRewardX64>totalRewardX64");
-        totalRewardX64 = _totalRewardX64;
-        compounderRewardX64 = _compounderRewardX64;
-        emit RewardUpdated(msg.sender, _totalRewardX64, _compounderRewardX64);
+    function addressToTokens(address addr) public view override returns (uint256[] memory) {
+        return accountTokens[addr];
     }
-    */
+    
     /**
      * @dev When receiving a Uniswap V3 NFT, deposits token with `from` as owner
      */
@@ -305,10 +295,6 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
         require(amount > 0, "amount==0");
         uint256 balance = callerBalances[msg.sender][tokenAddress];
         _withdrawBalanceInternalCaller(tokenAddress, to, balance, amount);
-    }
-
-    function addressToTokens(address addr) public view returns (uint256[] memory) {
-        return accountTokens[addr];
     }
 
     //for caller only

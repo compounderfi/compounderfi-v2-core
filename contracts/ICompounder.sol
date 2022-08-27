@@ -75,6 +75,15 @@ interface ICompounder is IERC721Receiver {
     function callerBalances(address account, address token) external view returns (uint256 balance);
 
     /**
+     * @notice Returns balance of token of account for callers of positions
+     * @param addr Address of account
+     * @return openPositions an array of the open positions for addr
+     */
+    function addressToTokens(address addr) external view returns (uint256[] memory openPositions);
+
+
+
+    /**
      * @notice Removes a NFT from the protocol and safe transfers it to address to
      * @param tokenId TokenId of token to remove
      * @param to Address to send to

@@ -37,7 +37,7 @@ describe("AutoCompounder Tests", function () {
   });
   it("Test random positions", async function () {
     let x = 0;
-    for(let tokenId = 1; tokenId < 30; tokenId ++) {
+    for(let tokenId = 2; tokenId < 4; tokenId ++) {
         const ownerAddress = await nonfungiblePositionManager.ownerOf(tokenId);
         await owner.sendTransaction({
             to: ownerAddress,
@@ -60,6 +60,32 @@ describe("AutoCompounder Tests", function () {
         }
 
     }
+  })
+
+  it("test position transfer and withdrawal", async function () {
+    const nftId = 1
+    const haydenSigner = await impersonateAccountAndGetSigner(haydenAddress);
+
+    await nonfungiblePositionManager.connect(haydenSigner)[["safeTransferFrom(address,address,uint256)"]](haydenAddress, contract.address, nftId);
+    const nftOwner = await contract.ownerOf(nftId);
+    const nftStored = await contract.accountTokens(haydenAddress, 0);
+    const openPositions = await contract.addressToTokens(haydenAddress);
+
+    console.log(openPositions)
+    // expect owner to match og
+    expect(nftOwner).to.equal(haydenAddress);
+    expect(nftStored).to.equal(nftId);
+    
+    
+
+
+    // withdraw token
+    await contract.connect(haydenSigner).withdrawToken(nftId, haydenAddress, true, 0);
+
+    // token no longer in contract
+    expect(await contract.connect(haydenSigner).callStatic.ownerOf(nftId)).to.equal(zeroAddress);
+    expect(await contract.balanceOf(haydenAddress)).to.equal(0);
+
   })
   
     
