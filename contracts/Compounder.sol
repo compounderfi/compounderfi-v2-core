@@ -48,6 +48,11 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
         swapRouter = _swapRouter;
     }
     
+    modifier onlyPositionOwner(uint256 tokenId) {
+        require(ownerOf[tokenId] == msg.sender, "!owner");
+        _;
+    }
+
     function addressToTokens(address addr) public view override returns (uint256[] memory) {
         return accountTokens[addr];
     }
@@ -209,10 +214,10 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
     function decreaseLiquidityAndCollect(DecreaseLiquidityAndCollectParams calldata params) 
         override 
         external  
-        nonReentrant 
+        nonReentrant
+        onlyPositionOwner(params.tokenId)
         returns (uint256 amount0, uint256 amount1) 
     {
-        require(ownerOf[params.tokenId] == msg.sender, "!owner");
         (amount0, amount1) = nonfungiblePositionManager.decreaseLiquidity(
             INonfungiblePositionManager.DecreaseLiquidityParams(
                 params.tokenId, 
@@ -243,10 +248,10 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
     function collect(INonfungiblePositionManager.CollectParams calldata params) 
         override 
         external
-        nonReentrant 
+        nonReentrant
+        onlyPositionOwner(params.tokenId)
         returns (uint256 amount0, uint256 amount1) 
     {
-        require(ownerOf[params.tokenId] == msg.sender, "!owner");
         return nonfungiblePositionManager.collect(params);
     }
 
@@ -262,9 +267,8 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
         address to,
         bool withdrawBalances,
         bytes memory data
-    ) external override nonReentrant {
+    ) external override nonReentrant onlyPositionOwner(tokenId) {
         require(to != address(this), "to==this");
-        require(ownerOf[tokenId] == msg.sender, "!owner");
 
         _removeToken(msg.sender, tokenId);
         nonfungiblePositionManager.safeTransferFrom(address(this), to, tokenId, data);
