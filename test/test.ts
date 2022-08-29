@@ -1,17 +1,9 @@
-import * as chai from "chai";
-import chaiAsPromised from "chai-as-promised";
-
+import {expect} from "chai";
 import { Console } from "console";
 import { ethers} from "hardhat";
 import { Contract, Signer } from "ethers";
 import { BigNumber} from "@ethersproject/bignumber";
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/dist/src/signer-with-address";
-
-
-chai.use(chaiAsPromised);
-
-// Then either:
-var expect = chai.expect;
+import "@nomicfoundation/hardhat-chai-matchers";
 
 const wethAddress = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
 const usdcAddress = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
@@ -26,7 +18,7 @@ const swapRouterAddress = "0xE592427A0AEce92De3Edee1F18E0157C05861564"
 const haydenAddress = "0x11E4857Bb9993a50c685A79AFad4E6F65D518DDa"
 const zeroAddress = "0x0000000000000000000000000000000000000000"
 
-chai.use(chaiAsPromised);
+
 describe("AutoCompounder Tests", function () {
     let contract: Contract;
     let nonfungiblePositionManager: Contract;
@@ -86,47 +78,42 @@ describe("AutoCompounder Tests", function () {
 
         const openPositions = await contract.addressToTokens(haydenAddress);
 
-        const position1 = openPositions[0].toNumber();
-        const position2 = openPositions[1].toNumber();
+        const position1 = openPositions[0]
+        const position2 = openPositions[1]
 
         // expect owner to match og
-        expect(contract.ownerOf(nftId1)).to.eventually.be.equal("0");
-        expect(contract.accountTokens(haydenAddress, 0)).should.eventually.equal(4);
-        expect(contract.accountTokens(haydenAddress, 1)).to.eventually.equal(nftId2);
+        expect(await contract.ownerOf(nftId1)).to.be.equal(haydenAddress);
+        expect(await contract.accountTokens(haydenAddress, 0)).to.equal(nftId1);
+        expect(await contract.accountTokens(haydenAddress, 1)).to.equal(nftId2);
 
         expect(position1).to.equal(nftId1);
         expect(position2).to.equal(nftId2);
+
         // withdraw token
         await contract.connect(haydenSigner).withdrawToken(nftId1, haydenAddress, true, 0);
 
         // token no longer in contract
-        expect(contract.connect(haydenSigner).withdrawToken(nftId1, haydenAddress, true, 0)).to.be.rejectedWith(Error);
-        expect(contract.callStatic.ownerOf(nftId1)).to.eventually.equal(zeroAddress);
-        const tokenLeft = (await contract.accountTokens(haydenAddress, 0)).toNumber();
+        await expect(contract.connect(haydenSigner).withdrawToken(nftId1, haydenAddress, true, 0)).to.be.revertedWith("!owner");
+        expect(await contract.callStatic.ownerOf(nftId1)).to.equal(zeroAddress);
+        const tokenLeft = (await contract.accountTokens(haydenAddress, 0));
 
         expect(tokenLeft).to.equal(nftId2);
 
         const remainingPositions = await contract.addressToTokens(haydenAddress);
-        const remain = remainingPositions[0].toNumber();
+        const remain = remainingPositions[0];
 
         expect(remain).to.equal(nftId2);
 
         //withdraw other token
         await contract.connect(haydenSigner).withdrawToken(nftId2, haydenAddress, true, 0); //none left
-        expect(contract.connect(haydenSigner).withdrawToken(nftId2, haydenAddress, true, 0)).to.be.rejectedWith(Error);
-        expect(contract.callStatic.ownerOf(nftId2)).to.eventually.equal(zeroAddress);
+        await expect(contract.connect(haydenSigner).withdrawToken(nftId2, haydenAddress, true, 0)).to.be.revertedWith("!owner");
+        expect(await contract.callStatic.ownerOf(nftId2)).to.equal(zeroAddress);
 
-        //const tokenLeft2 = (await contract.accountTokens(haydenAddress, 0));
-        expect(contract.accountTokens(haydenAddress, 0)).to.be.rejectedWith(Error);
+        await expect(contract.accountTokens(haydenAddress, 0)).to.be.reverted;
+        await expect(contract.accountTokens(haydenAddress, 1)).to.be.reverted;
         
-        expect(contract.addressToTokens(haydenAddress)).to.eventually.deep.equal([1, 2, 3]);
-        //expect( contract.connect(haydenSigner).withdrawToken(nftId2, haydenAddress, true, 0)).to.be(new Error("VM Exception while processing transaction: reverted with reason string '!owner'"));
-        //expect(await contract.connect(haydenSigner).withdrawToken(nftId1, haydenAddress, true, 0)).to.throw(new Error("VM Exception while processing transaction: reverted with reason string '!owner'"));
+        expect(await contract.addressToTokens(haydenAddress)).to.deep.equal([]);
 
-
-        
-  
-      
     })
     
       

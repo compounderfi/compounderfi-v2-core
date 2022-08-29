@@ -1,13 +1,12 @@
 {
   "name": "compounder",
   "devDependencies": {
+    "@nomicfoundation/hardhat-chai-matchers": "^1.0.3",
     "@nomicfoundation/hardhat-toolbox": "1.0.2",
     "@types/chai": "^4.3.3",
-    "@types/chai-as-promised": "^7.1.5",
     "@types/mocha": "^9.1.1",
     "@types/node": "^18.7.13",
     "dotenv": "^16.0.1",
-    "ethereum-waffle": "^3.4.4",
     "hardhat": "^2.10.1",
     "hardhat-gas-reporter": "^1.0.8",
     "ts-node": "^10.9.1",
