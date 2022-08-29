@@ -128,6 +128,48 @@ interface ICompounder is IERC721Receiver {
         bool doSwap;
     }
 
+     struct SwapParams {
+        address token0;
+        address token1;
+        uint24 fee; 
+        int24 tickLower; 
+        int24 tickUpper; 
+        uint256 amount0;
+        uint256 amount1;
+        uint256 deadline;
+        RewardConversion rewardToken;
+        bool doSwap;
+    }
+
+    struct AutoCompoundState {
+        uint256 amount0;
+        uint256 amount1;
+        uint256 excess0;
+        uint256 excess1;
+        address tokenOwner;
+        address token0;
+        address token1;
+        uint24 fee;
+        int24 tickLower;
+        int24 tickUpper;
+    }
+    
+    struct SwapState {
+        uint256 rewardAmount0;
+        uint256 rewardAmount1;
+        uint256 positionAmount0;
+        uint256 positionAmount1;
+        int24 tick;
+        uint160 sqrtPriceX96;
+        bool sell0;
+        uint160 sqrtPriceX96Lower;
+        uint160 sqrtPriceX96Upper;
+        uint256 amountRatioX96;
+        uint256 delta0;
+        uint256 delta1;
+        uint256 priceX96;
+    }
+
     /**
      * @notice Autocompounds for a given NFT (anyone can call this and gets a percentage of the fees)
      * @param params Autocompound specific parameters (tokenId, ...)
