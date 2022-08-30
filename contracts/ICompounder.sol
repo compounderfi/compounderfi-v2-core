@@ -36,12 +36,6 @@ interface ICompounder is IERC721Receiver {
         address token1
     );
 
-    /// @notice Total reward which is payed for autocompounding
-    function totalRewardX64() external view returns (uint64);
-
-    /// @notice Total reward which is payed for autocompounding with swaps
-    function swapTotalRewardX64() external view returns (uint64);
-
     /// @notice Reward which is payed to compounder - less or equal to totalRewardX64
     function protocolReward() external view returns (uint64);
 
@@ -162,8 +156,6 @@ interface ICompounder is IERC721Receiver {
         int24 tick;
         uint160 sqrtPriceX96;
         bool sell0;
-        uint160 sqrtPriceX96Lower;
-        uint160 sqrtPriceX96Upper;
         uint256 amountRatioX96;
         uint256 delta0;
         uint256 delta1;

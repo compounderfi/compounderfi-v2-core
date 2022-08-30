@@ -15,7 +15,7 @@ import "./external/uniswap/v3-periphery/libraries/LiquidityAmounts.sol";
 import "./external/uniswap/v3-periphery/interfaces/INonfungiblePositionManager.sol";
 
 import "./ICompounder.sol";
-//import "hardhat/console.sol";
+import "hardhat/console.sol";
 contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
 
     using SafeMath for uint256;
@@ -25,9 +25,6 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
 
     // max positions
     uint32 constant public MAX_POSITIONS_PER_ADDRESS = 100;
-
-    uint64 public constant override swapTotalRewardX64 = uint64(Q64 / 40); // 2.5%
-    uint64 public constant override totalRewardX64 = uint64(Q64 / 50);  // 2%
 
     //protocol takes a fifth, aka callers get 1.6% for no-swap compounds and 2% for swaps
     uint64 public constant override protocolReward = 5;
@@ -95,6 +92,9 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
         (state.amount0, state.amount1) = nonfungiblePositionManager.collect(
             INonfungiblePositionManager.CollectParams(params.tokenId, address(this), type(uint128).max, type(uint128).max)
         );
+
+        require(state.amount0 > 0 || state.amount1 > 0);
+
         //console.log(state.amount0, state.amount1);
         if(params.doSwap) {
             (, , state.token0, state.token1, state.fee, state.tickLower, state.tickUpper, , , , , ) = 
@@ -114,9 +114,17 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
             state.amount1 = state.amount1.add(state.excess1);
         }
         
-        require(state.amount0 > 0 || state.amount1 > 0);
+        
         if (params.doSwap) {
             // checks oracle for fair price - swaps to position ratio (considering estimated reward) - calculates max amount to be added
+            if (params.rewardConversion == RewardConversion.TOKEN_0) {
+                fees0 = state.amount0 / 40;
+                state.amount0 = state.amount0.sub(fees0);
+            } else {
+                fees1 = state.amount1 / 40;
+                state.amount1 = state.amount1.sub(fees1);
+            }
+            
             SwapParams memory swapParams = SwapParams(
                 state.token0, 
                 state.token1, 
@@ -129,7 +137,7 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
                 params.rewardConversion, 
                 params.doSwap
             );
-            (state.amount0, state.amount1, fees0, fees1) = 
+            (state.amount0, state.amount1) = 
                 _swapToPriceRatio(swapParams);
 
         } else {
@@ -159,10 +167,10 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
         // fees are always calculated based on added amount
         if (params.doSwap) {
             if (state.excess0 > 0) {
-                _setBalanceNoEventOwner(state.tokenOwner, state.token0, 0);
+                ownerBalances[state.tokenOwner][state.token0] = 0;
             }
             if (state.excess1 > 0) {
-                _setBalanceNoEventOwner(state.tokenOwner, state.token1, 0);
+                ownerBalances[state.tokenOwner][state.token1] = 0;
             }
 
             if (params.rewardConversion == RewardConversion.TOKEN_0) {
@@ -172,8 +180,8 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
             }
         } else {
             // calculate remaining tokens for owner
-            _setBalanceNoEventOwner(state.tokenOwner, state.token0, state.amount0.sub(compounded0));
-            _setBalanceNoEventOwner(state.tokenOwner, state.token1, state.amount1.sub(compounded1));
+            ownerBalances[state.tokenOwner][state.token0] = state.amount0.sub(compounded0);
+            ownerBalances[state.tokenOwner][state.token1] = state.amount1.sub(compounded1);
             if (params.rewardConversion == RewardConversion.TOKEN_0) {
                 _increaseBalanceCaller(msg.sender, state.token0, fees0);
             } else {
@@ -181,7 +189,7 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
             }
         }
 
-        emit AutoCompounded(msg.sender, params.tokenId, compounded0, compounded1, fees0, fees1, state.token0, state.token1);
+        //emit AutoCompounded(msg.sender, params.tokenId, compounded0, compounded1, fees0, fees1, state.token0, state.token1);
     }
 
     /**
@@ -285,7 +293,7 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
     function _increaseBalanceCaller(address account, address tokenAddress, uint256 amount) internal {
         if(amount > 0) {
             callerBalances[account][tokenAddress] = callerBalances[account][tokenAddress].add(amount);
-            emit BalanceAdded(account, tokenAddress, amount);
+            //emit BalanceAdded(account, tokenAddress, amount);
         }
     }
 
@@ -337,7 +345,7 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
 
         uint256 protocolFees = amount.div(protocolReward);
         uint256 callerFees = amount.sub(protocolFees);
-
+        //console.log(protocolFees, callerFees);
         SafeERC20.safeTransfer(IERC20(tokenAddress), to, callerFees);
         SafeERC20.safeTransfer(IERC20(tokenAddress), owner(), protocolFees);
     }
@@ -394,7 +402,7 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
     // checks oracle for fair price - swaps to position ratio (considering estimated reward) - calculates max amount to be added
     function _swapToPriceRatio(SwapParams memory params) 
         internal 
-        returns (uint256 amount0, uint256 amount1, uint256 fees0, uint256 fees1) 
+        returns (uint256 amount0, uint256 amount1) 
     {    
         SwapState memory state;
 
@@ -421,24 +429,11 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
         // *a smaller pool will not yield significant fees
         
         state.priceX96 = uint256(state.sqrtPriceX96).mul(state.sqrtPriceX96).div(Q96);
-        
-
-        // swap to correct proportions is requested
-        if (params.rewardToken == RewardConversion.TOKEN_0) {
-            fees0 = amount0 / 40;
-            amount0 = amount0.sub(fees0);
-        } else {
-            fees1 = amount1 / 40;
-            amount1 = amount1.sub(fees1);
-        }
-        // calculate ideal position amounts
-        state.sqrtPriceX96Lower = TickMath.getSqrtRatioAtTick(params.tickLower);
-        state.sqrtPriceX96Upper = TickMath.getSqrtRatioAtTick(params.tickUpper);
 
         (state.positionAmount0, state.positionAmount1) = LiquidityAmounts.getAmountsForLiquidity(
                                                             state.sqrtPriceX96, 
-                                                            state.sqrtPriceX96Lower, 
-                                                            state.sqrtPriceX96Upper, 
+                                                            TickMath.getSqrtRatioAtTick(params.tickLower), 
+                                                            TickMath.getSqrtRatioAtTick(params.tickUpper), 
                                                             Q96); // dummy value we just need ratio
 
         // calculate how much of the position needs to be converted to the other token
@@ -450,13 +445,14 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
             state.sell0 = false;
         } else {
             state.amountRatioX96 = state.positionAmount0.mul(Q96).div(state.positionAmount1);
-            state.sell0 = (state.amountRatioX96.mul(amount1) < amount0.mul(Q96));
+            uint256 amount1as0 = state.amountRatioX96.mul(amount1);
+            uint256 amount0as96 = amount0.mul(Q96);
+            state.sell0 = (amount1as0 < amount0as96);
             if (state.sell0) {
-                state.delta0 = amount0.mul(Q96).sub(state.amountRatioX96.mul(amount1)).div(state.amountRatioX96.mul(state.priceX96).div(Q96).add(Q96));
+                state.delta0 = amount0as96.sub(amount1as0).div(state.amountRatioX96.mul(state.priceX96).div(Q96).add(Q96));
                 
             } else {
-                state.delta0 = state.amountRatioX96.mul(amount1).sub(amount0.mul(Q96)).div(state.amountRatioX96.mul(state.priceX96).div(Q96).add(Q96));
-                
+                state.delta0 = amount1as0.sub(amount0as96).div(state.amountRatioX96.mul(state.priceX96).div(Q96).add(Q96));
             }
         }
 

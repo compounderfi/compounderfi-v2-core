@@ -42,7 +42,7 @@ describe("AutoCompounder Tests", function () {
     });
     it("Test random positions", async function () {
         let x = 0;
-        //const specificPositions = [98, 96, 94];
+        //const specificPositions = [10];
         
         //for(const tokenId of specificPositions) {
         for(let tokenId = 10; tokenId < 100; tokenId ++) {
@@ -60,22 +60,22 @@ describe("AutoCompounder Tests", function () {
             const token0 = pos["token0"];
             const token1 = pos["token1"];
 
-            
-            const amount0 = amountPossible["amount0"].add(await contract.ownerBalances(positionOwnerAddress, token0));
-            const amount1 = amountPossible["amount1"].add(await contract.ownerBalances(positionOwnerAddress, token1));
+            if (amountPossible["amount0"] > 0 || amountPossible["amount1"] > 0) {
+                const amount0 = amountPossible["amount0"].add(await contract.ownerBalances(positionOwnerAddress, token0));
+                const amount1 = amountPossible["amount1"].add(await contract.ownerBalances(positionOwnerAddress, token1));
 
-            if (amount0 > 0 || amount1 > 0) {
+            
                 
                 //console.log(amount0, amount1);
 
-                const token0before = await contract.callerBalances(await owner.getAddress(), token0)
-                const token1before = await contract.callerBalances(await owner.getAddress(), token1)
+                const token0before = await contract.callerBalances(await otherAccount.getAddress(), token0)
+                const token1before = await contract.callerBalances(await otherAccount.getAddress(), token1)
 
                 await nonfungiblePositionManager.connect(positionOwnerSigner)["safeTransferFrom(address,address,uint256)"](positionOwnerAddress, contract.address, tokenId, { gasLimit: 500000 });
-                await contract.connect(owner).autoCompound( { tokenId, rewardConversion: x, doSwap: x==0 });
+                await contract.connect(otherAccount).autoCompound( { tokenId, rewardConversion: x, doSwap: x==0 });
                 
-                const token0after = await contract.callerBalances(await owner.getAddress(), token0)
-                const token1after = await contract.callerBalances(await owner.getAddress(), token1)
+                const token0after = await contract.callerBalances(await otherAccount.getAddress(), token0)
+                const token1after = await contract.callerBalances(await otherAccount.getAddress(), token1)
 
                 const swap = x%2==0 ? 25 : 20
                 //const swap = 0.02;
@@ -90,6 +90,34 @@ describe("AutoCompounder Tests", function () {
                     }
                 } catch(e) {
                     console.log(e)
+                }
+                
+                const token0contract = await ethers.getContractAt("IERC20", token0);
+                const token1contract = await ethers.getContractAt("IERC20", token1);
+
+                if (token0after > 0) {
+                    const token0beforeWithdraw = await token0contract.balanceOf(await otherAccount.getAddress());
+                    await contract.connect(otherAccount).withdrawBalanceCaller(token0, await otherAccount.getAddress(), token0after);
+                    const token0afterWithdraw = await token0contract.balanceOf(await otherAccount.getAddress());
+                    
+                    try {
+                        expect(token0afterWithdraw.sub(token0beforeWithdraw)).to.be.within(token0after.mul(4).div(5)-1, token0after.mul(4).div(5)+1);
+                    } catch (e) {
+                        console.log(e);
+                        console.log(tokenId)
+                    }
+                }
+                if (token1after > 0) {
+                    const token1beforeWithdraw = await token1contract.balanceOf(await otherAccount.getAddress());
+                    await contract.connect(otherAccount).withdrawBalanceCaller(token1, await otherAccount.getAddress(), token1after);
+                    const token1afterWithdraw = await token1contract.balanceOf(await otherAccount.getAddress());
+                    
+                    try {
+                        expect(token1afterWithdraw.sub(token1beforeWithdraw)).to.be.within(token1after.mul(4).div(5)-1, token1after.mul(4).div(5)+1);
+                    } catch (e) {
+                        console.log(e);
+                        console.log(tokenId)
+                    }
                 }
 
                 x = (x + 1) % 2
