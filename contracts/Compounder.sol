@@ -15,7 +15,7 @@ import "./external/uniswap/v3-periphery/libraries/LiquidityAmounts.sol";
 import "./external/uniswap/v3-periphery/interfaces/INonfungiblePositionManager.sol";
 
 import "./ICompounder.sol";
-import "hardhat/console.sol";
+//import "hardhat/console.sol";
 contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
 
     using SafeMath for uint256;
@@ -84,9 +84,8 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
     function autoCompound(AutoCompoundParams memory params) 
         override 
         external
-        returns (uint256 fees0, uint256 fees1, uint256 compounded0, uint256 compounded1, uint256 gas) 
+        returns (uint256 fees0, uint256 fees1, uint256 compounded0, uint256 compounded1) 
     {   
-        uint256 startGas = gasleft();
         AutoCompoundState memory state;
         state.tokenOwner = ownerOf[params.tokenId];
 
@@ -105,20 +104,16 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
             nonfungiblePositionManager.positions(params.tokenId);
         }
     
-        
-        //console.log(state.amount0, state.amount1);
-
-        
         state.excess0 = ownerBalances[state.tokenOwner][state.token0];
         state.excess1 = ownerBalances[state.tokenOwner][state.token1];
-
+        //console.log(state.excess0, state.excess1, state.amount0, state.amount1);
         if (state.excess0 > 0) {
             state.amount0 = state.amount0.add(state.excess0);
         }
         if (state.excess1 > 0) {
             state.amount1 = state.amount1.add(state.excess1);
         }
-
+        
         require(state.amount0 > 0 || state.amount1 > 0);
         if (params.doSwap) {
             // checks oracle for fair price - swaps to position ratio (considering estimated reward) - calculates max amount to be added
@@ -139,10 +134,10 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
 
         } else {
             if (params.rewardConversion == RewardConversion.TOKEN_0) {
-                fees0 = state.amount0.mul(totalRewardX64).div(Q64);
+                fees0 = state.amount0 / 50;
                 state.amount0 = state.amount0.sub(fees0);
             } else {
-                fees1 = state.amount1.mul(totalRewardX64).div(Q64);
+                fees1 = state.amount1 / 50;
                 state.amount1 = state.amount1.sub(fees1);
             }
         }
@@ -187,7 +182,6 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
         }
 
         emit AutoCompounded(msg.sender, params.tokenId, compounded0, compounded1, fees0, fees1, state.token0, state.token1);
-        gas = startGas - gasleft();
     }
 
     /**
@@ -431,10 +425,10 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
 
         // swap to correct proportions is requested
         if (params.rewardToken == RewardConversion.TOKEN_0) {
-            fees0 = amount0.mul(swapTotalRewardX64).div(Q64);
+            fees0 = amount0 / 40;
             amount0 = amount0.sub(fees0);
         } else {
-            fees1 = amount1.mul(swapTotalRewardX64).div(Q64);
+            fees1 = amount1 / 40;
             amount1 = amount1.sub(fees1);
         }
         // calculate ideal position amounts

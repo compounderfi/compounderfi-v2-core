@@ -153,7 +153,7 @@ interface ICompounder is IERC721Receiver {
         int24 tickLower;
         int24 tickUpper;
     }
-    
+
     struct SwapState {
         uint256 rewardAmount0;
         uint256 rewardAmount1;
@@ -177,9 +177,8 @@ interface ICompounder is IERC721Receiver {
      * @return reward1 Amount of token1 caller recieves
      * @return compounded0 Amount of token0 that was compounded
      * @return compounded1 Amount of token1 that was compounded
-     * @return gas Amount of gas that was used
      */
-    function autoCompound(AutoCompoundParams calldata params) external returns (uint256 reward0, uint256 reward1, uint256 compounded0, uint256 compounded1, uint256 gas);
+    function autoCompound(AutoCompoundParams calldata params) external returns (uint256 reward0, uint256 reward1, uint256 compounded0, uint256 compounded1);
 
     struct DecreaseLiquidityAndCollectParams {
         uint256 tokenId;

@@ -38,29 +38,63 @@ describe("AutoCompounder Tests", function () {
         factory = await ethers.getContractAt("IUniswapV3Factory", factoryAddress);
   
         [owner, otherAccount] = await ethers.getSigners();
+        
     });
     it("Test random positions", async function () {
         let x = 0;
-        for(let tokenId = 3; tokenId < 4; tokenId ++) {
-            const ownerAddress = await nonfungiblePositionManager.ownerOf(tokenId);
+        //const specificPositions = [98, 96, 94];
+        
+        //for(const tokenId of specificPositions) {
+        for(let tokenId = 10; tokenId < 100; tokenId ++) {
+
+            const positionOwnerAddress = await nonfungiblePositionManager.ownerOf(tokenId);
             await owner.sendTransaction({
-                to: ownerAddress,
+                to: positionOwnerAddress,
                 value: ethers.utils.parseEther("1.0")
             });
-            const ownerSigner = await ethers.getImpersonatedSigner(ownerAddress);
-            const amountPossible = await nonfungiblePositionManager.connect(ownerSigner).callStatic.collect(
-            [tokenId, ownerAddress, 5, 5]
+            const positionOwnerSigner = await ethers.getImpersonatedSigner(positionOwnerAddress);
+            const amountPossible = await nonfungiblePositionManager.connect(positionOwnerSigner).callStatic.collect(
+                [tokenId, positionOwnerAddress, BigNumber.from("340282366920938463463374607431768211455"), BigNumber.from("340282366920938463463374607431768211455")]
             )
+            const pos = await nonfungiblePositionManager.callStatic.positions(tokenId);
+            const token0 = pos["token0"];
+            const token1 = pos["token1"];
 
-            const amount0 = amountPossible["amount0"];
-            const amount1 = amountPossible["amount1"];
-            if (amount0 > 0 || amount1 > 0) {
-            await nonfungiblePositionManager.connect(ownerSigner)["safeTransferFrom(address,address,uint256)"](ownerAddress, contract.address, tokenId, { gasLimit: 500000 });
-            await contract.autoCompound( { tokenId, rewardConversion: x, doSwap: x%2==0 });
             
-            x = (x + 1) % 2
+            const amount0 = amountPossible["amount0"].add(await contract.ownerBalances(positionOwnerAddress, token0));
+            const amount1 = amountPossible["amount1"].add(await contract.ownerBalances(positionOwnerAddress, token1));
+
+            if (amount0 > 0 || amount1 > 0) {
+                
+                //console.log(amount0, amount1);
+
+                const token0before = await contract.callerBalances(await owner.getAddress(), token0)
+                const token1before = await contract.callerBalances(await owner.getAddress(), token1)
+
+                await nonfungiblePositionManager.connect(positionOwnerSigner)["safeTransferFrom(address,address,uint256)"](positionOwnerAddress, contract.address, tokenId, { gasLimit: 500000 });
+                await contract.connect(owner).autoCompound( { tokenId, rewardConversion: x, doSwap: x==0 });
+                
+                const token0after = await contract.callerBalances(await owner.getAddress(), token0)
+                const token1after = await contract.callerBalances(await owner.getAddress(), token1)
+
+                const swap = x%2==0 ? 25 : 20
+                //const swap = 0.02;
+
+                try {
+                   
+                    if (x==0) {
+                        expect(token0after.sub(token0before)).to.be.within(amount0.mul(swap).div(1000)-1, amount0.mul(swap).div(1000));
+                    } else {
+                        expect(token1after.sub(token1before)).to.be.within(amount1.mul(swap).div(1000)-1, amount1.mul(swap).div(1000));
+                        
+                    }
+                } catch(e) {
+                    console.log(e)
+                }
+
+                x = (x + 1) % 2
             } else {
-            console.log(`position ${tokenId} doesn't have enough to be compounded`)
+                //console.log(`position ${tokenId} doesn't have enough to be compounded`)
             }
   
       }
@@ -116,7 +150,7 @@ describe("AutoCompounder Tests", function () {
 
     })
 
-    
+
     
       
 
