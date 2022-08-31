@@ -95,17 +95,15 @@ interface ICompounder is IERC721Receiver {
      * @notice Withdraws token balance for a address and token for an owner
      * @param token Address of token to withdraw
      * @param to Address to send to
-     * @param amount amount to withdraw
      */
-    function withdrawBalanceOwner(address token, address to, uint256 amount) external;
+    function withdrawBalanceOwner(address token, address to) external;
 
     /**
      * @notice Withdraws token balance for a address and token for a caller
      * @param token Address of token to withdraw
      * @param to Address to send to
-     * @param amount amount to withdraw
      */
-    function withdrawBalanceCaller(address token, address to, uint256 amount) external;
+    function withdrawBalanceCaller(address token, address to) external;
 
     /// @notice how reward should be converted
     enum RewardConversion { TOKEN_0, TOKEN_1 }
@@ -165,12 +163,12 @@ interface ICompounder is IERC721Receiver {
     /**
      * @notice Autocompounds for a given NFT (anyone can call this and gets a percentage of the fees)
      * @param params Autocompound specific parameters (tokenId, ...)
-     * @return reward0 Amount of token0 caller recieves
-     * @return reward1 Amount of token1 caller recieves
+     * @return fees0 Amount of token0 caller recieves
+     * @return fees1 Amount of token1 caller recieves
      * @return compounded0 Amount of token0 that was compounded
      * @return compounded1 Amount of token1 that was compounded
      */
-    function autoCompound(AutoCompoundParams calldata params) external returns (uint256 reward0, uint256 reward1, uint256 compounded0, uint256 compounded1);
+    function autoCompound(AutoCompoundParams calldata params) external returns (uint256 fees0, uint256 fees1, uint256 compounded0, uint256 compounded1);
 
     struct DecreaseLiquidityAndCollectParams {
         uint256 tokenId;

@@ -16,6 +16,7 @@ import "./external/uniswap/v3-periphery/interfaces/INonfungiblePositionManager.s
 
 import "./ICompounder.sol";
 import "hardhat/console.sol";
+
 contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
 
     using SafeMath for uint256;
@@ -50,7 +51,7 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
         _;
     }
 
-    function addressToTokens(address addr) public view override returns (uint256[] memory) {
+    function addressToTokens(address addr) external view override returns (uint256[] memory) {
         return accountTokens[addr];
     }
     
@@ -113,7 +114,7 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
         if (state.excess1 > 0) {
             state.amount1 = state.amount1.add(state.excess1);
         }
-        
+        //console.log(state.amount0, state.amount1);
         
         if (params.doSwap) {
             // checks oracle for fair price - swaps to position ratio (considering estimated reward) - calculates max amount to be added
@@ -173,14 +174,30 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
                 ownerBalances[state.tokenOwner][state.token1] = 0;
             }
 
+            uint ans1 = 0;
+            if(state.amount1.sub(compounded1) > 0) {
+                ans1 = compounded1.div(state.amount1.sub(compounded1));
+            }
+
+            uint ans0 = 0;
+            if(state.amount0.sub(compounded0) > 0) {
+                ans0 = compounded0.div(state.amount0.sub(compounded0));
+            }
+
+            console.log("tokenid:", params.tokenId, ans0, ans1);
             if (params.rewardConversion == RewardConversion.TOKEN_0) {
+                
                 _increaseBalanceCaller(msg.sender, state.token0, state.amount0.sub(compounded0).add(fees0));
             } else {
+                
                 _increaseBalanceCaller(msg.sender, state.token1, state.amount1.sub(compounded1).add(fees1));
             }
         } else {
+            //console.log(state.amount0 , compounded0);
             // calculate remaining tokens for owner
+            //console.log(ownerBalances[state.tokenOwner][state.token0]);
             ownerBalances[state.tokenOwner][state.token0] = state.amount0.sub(compounded0);
+            //console.log(ownerBalances[state.tokenOwner][state.token0]);
             ownerBalances[state.tokenOwner][state.token1] = state.amount1.sub(compounded1);
             if (params.rewardConversion == RewardConversion.TOKEN_0) {
                 _increaseBalanceCaller(msg.sender, state.token0, fees0);
@@ -272,25 +289,24 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
      * @notice Withdraws token balance for a address and token
      * @param tokenAddress Address of token to withdraw
      * @param to Address to send to
-     * @param amount amount to withdraw
      */
 
     //for owner only
-    function withdrawBalanceOwner(address tokenAddress, address to, uint256 amount) external override nonReentrant {
+    function withdrawBalanceOwner(address tokenAddress, address to) external override nonReentrant {
+        uint256 amount = ownerBalances[msg.sender][tokenAddress];
         require(amount > 0, "amount==0");
-        uint256 balance = ownerBalances[msg.sender][tokenAddress];
-        _withdrawBalanceInternalOwner(tokenAddress, to, balance, amount);
+        _withdrawBalanceInternalOwner(tokenAddress, to, amount);
     }
 
     //for caller only
-    function withdrawBalanceCaller(address tokenAddress, address to, uint256 amount) external override nonReentrant {
+    function withdrawBalanceCaller(address tokenAddress, address to) external override nonReentrant {
+        uint256 amount = callerBalances[msg.sender][tokenAddress];
         require(amount > 0, "amount==0");
-        uint256 balance = callerBalances[msg.sender][tokenAddress];
-        _withdrawBalanceInternalCaller(tokenAddress, to, balance, amount);
+        _withdrawBalanceInternalCaller(tokenAddress, to, amount);
     }
 
     //for caller only
-    function _increaseBalanceCaller(address account, address tokenAddress, uint256 amount) internal {
+    function _increaseBalanceCaller(address account, address tokenAddress, uint256 amount) private {
         if(amount > 0) {
             callerBalances[account][tokenAddress] = callerBalances[account][tokenAddress].add(amount);
             //emit BalanceAdded(account, tokenAddress, amount);
@@ -298,7 +314,7 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
     }
 
     //for owner only
-    function _setBalanceOwner(address account, address tokenAddress, uint256 amount) internal {
+    function _setBalanceOwner(address account, address tokenAddress, uint256 amount) private {
         uint currentBalance = ownerBalances[account][tokenAddress];
         
         if (amount > currentBalance) {
@@ -311,27 +327,26 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
     }
 
     //for owner only
-    function _setBalanceNoEventOwner(address account, address tokenAddress, uint256 amount) internal {
+    function _setBalanceNoEventOwner(address account, address tokenAddress, uint256 amount) private {
         ownerBalances[account][tokenAddress] = amount;
     }
 
 
 
     //for owner only
-    function _withdrawFullBalancesInternalOwner(address token0, address token1, address to) internal {
+    function _withdrawFullBalancesInternalOwner(address token0, address token1, address to) private {
         uint256 balance0 = ownerBalances[msg.sender][token0];
         if (balance0 > 0) {
-            _withdrawBalanceInternalOwner(token0, to, balance0, balance0);
+            _withdrawBalanceInternalOwner(token0, to, balance0);
         }
         uint256 balance1 = ownerBalances[msg.sender][token1];
         if (balance1 > 0) {
-            _withdrawBalanceInternalOwner(token1, to, balance1, balance1);
+            _withdrawBalanceInternalOwner(token1, to, balance1);
         }
     }
 
     //for owner only
-    function _withdrawBalanceInternalOwner(address tokenAddress, address to, uint256 balance, uint256 amount) internal {
-        require(amount <= balance, "amount>balance");
+    function _withdrawBalanceInternalOwner(address tokenAddress, address to, uint256 amount) private {
         ownerBalances[msg.sender][tokenAddress] = ownerBalances[msg.sender][tokenAddress].sub(amount);
         emit BalanceRemoved(msg.sender, tokenAddress, amount);
         SafeERC20.safeTransfer(IERC20(tokenAddress), to, amount);
@@ -339,9 +354,8 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
     }
 
     //for caller only
-    function _withdrawBalanceInternalCaller(address tokenAddress, address to, uint256 balance, uint256 amount) internal {
-        require(amount <= balance, "amount>balance");
-        callerBalances[msg.sender][tokenAddress] = callerBalances[msg.sender][tokenAddress].sub(amount);
+    function _withdrawBalanceInternalCaller(address tokenAddress, address to, uint256 amount) private {
+        callerBalances[msg.sender][tokenAddress] = 0;
 
         uint256 protocolFees = amount.div(protocolReward);
         uint256 callerFees = amount.sub(protocolFees);
@@ -350,7 +364,7 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
         SafeERC20.safeTransfer(IERC20(tokenAddress), owner(), protocolFees);
     }
 
-    function _addToken(uint256 tokenId, address account) internal {
+    function _addToken(uint256 tokenId, address account) private {
 
         require(accountTokens[account].length < MAX_POSITIONS_PER_ADDRESS, "max positions reached");
 
@@ -363,7 +377,7 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
         ownerOf[tokenId] = account;
     }
 
-    function _checkApprovals(IERC20 token0, IERC20 token1) internal {
+    function _checkApprovals(IERC20 token0, IERC20 token1) private {
         // approve tokens once if not yet approved
         uint256 allowance0 = token0.allowance(address(this), address(nonfungiblePositionManager));
         if (allowance0 == 0) {
@@ -377,7 +391,7 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
         }
     }
 
-    function _removeToken(address account, uint256 tokenId) internal {
+    function _removeToken(address account, uint256 tokenId) private {
         uint256[] memory accountTokensArr = accountTokens[account];
         uint256 len = accountTokensArr.length;
         uint256 assetIndex = len;
@@ -401,7 +415,7 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
 
     // checks oracle for fair price - swaps to position ratio (considering estimated reward) - calculates max amount to be added
     function _swapToPriceRatio(SwapParams memory params) 
-        internal 
+        private 
         returns (uint256 amount0, uint256 amount1) 
     {    
         SwapState memory state;
@@ -427,8 +441,9 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
         // *there is a significant gas cost to compound many positions
         // *a larger pool will not have significant slippage
         // *a smaller pool will not yield significant fees
-        
-        state.priceX96 = uint256(state.sqrtPriceX96).mul(state.sqrtPriceX96).div(Q96);
+
+        state.priceX96 = uint256(state.sqrtPriceX96).mul(state.sqrtPriceX96);
+
 
         (state.positionAmount0, state.positionAmount1) = LiquidityAmounts.getAmountsForLiquidity(
                                                             state.sqrtPriceX96, 
@@ -455,7 +470,6 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
                 state.delta0 = amount1as0.sub(amount0as96).div(state.amountRatioX96.mul(state.priceX96).div(Q96).add(Q96));
             }
         }
-
         if (state.delta0 > 0) {
             if (state.sell0) {
                 uint256 amountOut = _swap(
@@ -480,7 +494,7 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
         
     }
 
-    function _swap(bytes memory swapPath, uint256 amount, uint256 deadline) internal returns (uint256 amountOut) {
+    function _swap(bytes memory swapPath, uint256 amount, uint256 deadline) private returns (uint256 amountOut) {
         if (amount > 0) {
             amountOut = swapRouter.exactInput(
                 ISwapRouter.ExactInputParams(swapPath, address(this), deadline, amount, 0)
