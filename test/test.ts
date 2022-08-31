@@ -43,10 +43,10 @@ describe("AutoCompounder Tests", function () {
     });
     it("Test random positions", async function () {
         let x = 0;
-        const specificPositions = [283];
+        const specificPositions = [291];
         
-        for(const tokenId of specificPositions) {
-        //for(let tokenId = 280; tokenId < 325; tokenId ++) {
+        //for(const tokenId of specificPositions) {
+        for(let tokenId = 10; tokenId < 100; tokenId ++) {
 
             const positionOwnerAddress = await nonfungiblePositionManager.ownerOf(tokenId);
             await owner.sendTransaction({
@@ -101,11 +101,12 @@ describe("AutoCompounder Tests", function () {
                         
                     }
                 } catch(e) {
-                    //console.log(e)
+                    console.log(e)
                 }
                 
                 const token0contract = await ethers.getContractAt("IERC20", token0);
                 const token1contract = await ethers.getContractAt("IERC20", token1);
+                
                 /*
                 if(x % 2==0) { //swap enabled
                     expect(await contract.ownerBalances(token0, callerAdress)).to.be.equal(0);
@@ -118,8 +119,12 @@ describe("AutoCompounder Tests", function () {
                     const remaining0 = amount0.sub(compounded["fees0"]).sub(compounded["compounded0"]);
                     const remaining1 = amount1.sub(compounded["fees1"]).sub(compounded["compounded1"]);
 
-                    expect(await contract.ownerBalances(token0, callerAdress)).to.be.equal(remaining0);
-                    expect(await contract.ownerBalances(token1, callerAdress)).to.be.equal(remaining1);
+                    try {
+                        expect(await contract.ownerBalances(token0, callerAdress)).to.be.equal(remaining0);
+                        expect(await contract.ownerBalances(token1, callerAdress)).to.be.equal(remaining1);
+                    } catch (e) {
+                        console.log(e)
+                    }
 
                     const positionownertoken0beforeWithdraw = await token0contract.balanceOf(positionOwnerAddress);
                     const positionownertoken1beforeWithdraw = await token1contract.balanceOf(positionOwnerAddress);
@@ -130,8 +135,16 @@ describe("AutoCompounder Tests", function () {
                     const positionownertoken0afterWithdraw = await token0contract.balanceOf(positionOwnerAddress);
                     const positionownertoken1afterWithdraw = await token1contract.balanceOf(positionOwnerAddress);
 
-                    expect(positionownertoken0afterWithdraw.sub(positionownertoken0beforeWithdraw).to.be.equal(remaining0));
-                    expect(positionownertoken1afterWithdraw.sub(positionownertoken1beforeWithdraw).to.be.equal(remaining1));
+                    try {
+                        expect(await positionownertoken0afterWithdraw.sub(positionownertoken0beforeWithdraw)).to.be.equal(remaining0);
+                        expect(await positionownertoken1afterWithdraw.sub(positionownertoken1beforeWithdraw)).to.be.equal(remaining1);
+                    } catch (e) {
+                        console.log(e)
+                    }
+                    
+                    expect(await positionownertoken0afterWithdraw.sub(positionownertoken0beforeWithdraw)).to.be.equal(remaining0);
+                    expect(await positionownertoken1afterWithdraw.sub(positionownertoken1beforeWithdraw)).to.be.equal(remaining1);
+                    
                 }
                 */
 

@@ -10,9 +10,10 @@ import "./external/openzeppelin/math/SafeMath.sol";
 
 import "./external/uniswap/v3-core/interfaces/IUniswapV3Pool.sol";
 import "./external/uniswap/v3-core/libraries/TickMath.sol";
-
+import "./external/uniswap/v3-core/libraries/FullMath.sol";
 import "./external/uniswap/v3-periphery/libraries/LiquidityAmounts.sol";
 import "./external/uniswap/v3-periphery/interfaces/INonfungiblePositionManager.sol";
+
 
 import "./ICompounder.sol";
 import "hardhat/console.sol";
@@ -23,6 +24,7 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
 
     uint128 constant Q64 = 2**64;
     uint128 constant Q96 = 2**96;
+    uint256 constant Q192 = 2**192;
 
     // max positions
     uint32 constant public MAX_POSITIONS_PER_ADDRESS = 100;
@@ -96,7 +98,7 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
 
         require(state.amount0 > 0 || state.amount1 > 0);
 
-        //console.log(state.amount0, state.amount1);
+
         if(params.doSwap) {
             (, , state.token0, state.token1, state.fee, state.tickLower, state.tickUpper, , , , , ) = 
             nonfungiblePositionManager.positions(params.tokenId);
@@ -107,14 +109,13 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
     
         state.excess0 = ownerBalances[state.tokenOwner][state.token0];
         state.excess1 = ownerBalances[state.tokenOwner][state.token1];
-        //console.log(state.excess0, state.excess1, state.amount0, state.amount1);
+
         if (state.excess0 > 0) {
             state.amount0 = state.amount0.add(state.excess0);
         }
         if (state.excess1 > 0) {
             state.amount1 = state.amount1.add(state.excess1);
         }
-        //console.log(state.amount0, state.amount1);
         
         if (params.doSwap) {
             // checks oracle for fair price - swaps to position ratio (considering estimated reward) - calculates max amount to be added
@@ -134,7 +135,6 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
                 state.tickUpper, 
                 state.amount0, 
                 state.amount1, 
-                block.timestamp, 
                 params.rewardConversion, 
                 params.doSwap
             );
@@ -150,7 +150,7 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
                 state.amount1 = state.amount1.sub(fees1);
             }
         }
-        
+        //console.log(state.amount0, state.amount1);
         // deposit liquidity into tokenId
         if (state.amount0 > 0 || state.amount1 > 0) {
             (, compounded0, compounded1) = nonfungiblePositionManager.increaseLiquidity(
@@ -173,7 +173,7 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
             if (state.excess1 > 0) {
                 ownerBalances[state.tokenOwner][state.token1] = 0;
             }
-
+            
             uint ans1 = 0;
             if(state.amount1.sub(compounded1) > 0) {
                 ans1 = compounded1.div(state.amount1.sub(compounded1));
@@ -193,11 +193,7 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
                 _increaseBalanceCaller(msg.sender, state.token1, state.amount1.sub(compounded1).add(fees1));
             }
         } else {
-            //console.log(state.amount0 , compounded0);
-            // calculate remaining tokens for owner
-            //console.log(ownerBalances[state.tokenOwner][state.token0]);
             ownerBalances[state.tokenOwner][state.token0] = state.amount0.sub(compounded0);
-            //console.log(ownerBalances[state.tokenOwner][state.token0]);
             ownerBalances[state.tokenOwner][state.token1] = state.amount1.sub(compounded1);
             if (params.rewardConversion == RewardConversion.TOKEN_0) {
                 _increaseBalanceCaller(msg.sender, state.token0, fees0);
@@ -359,7 +355,7 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
 
         uint256 protocolFees = amount.div(protocolReward);
         uint256 callerFees = amount.sub(protocolFees);
-        //console.log(protocolFees, callerFees);
+
         SafeERC20.safeTransfer(IERC20(tokenAddress), to, callerFees);
         SafeERC20.safeTransfer(IERC20(tokenAddress), owner(), protocolFees);
     }
@@ -442,8 +438,6 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
         // *a larger pool will not have significant slippage
         // *a smaller pool will not yield significant fees
 
-        state.priceX96 = uint256(state.sqrtPriceX96).mul(state.sqrtPriceX96);
-
 
         (state.positionAmount0, state.positionAmount1) = LiquidityAmounts.getAmountsForLiquidity(
                                                             state.sqrtPriceX96, 
@@ -456,42 +450,47 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
             state.delta0 = amount0;
             state.sell0 = true;
         } else if (state.positionAmount1 == 0) {
-            state.delta0 = amount1.mul(Q96).div(state.priceX96);
+            state.priceX96 = FullMath.mulDiv(state.sqrtPriceX96, state.sqrtPriceX96, Q96);
+            state.delta0 = FullMath.mulDiv(amount1, Q96, state.priceX96);
             state.sell0 = false;
         } else {
-            state.amountRatioX96 = state.positionAmount0.mul(Q96).div(state.positionAmount1);
+            state.amountRatioX96 = FullMath.mulDiv(state.positionAmount0, Q96, state.positionAmount1);
+
             uint256 amount1as0 = state.amountRatioX96.mul(amount1);
             uint256 amount0as96 = amount0.mul(Q96);
+
+            uint256 priceX192 = uint256(state.sqrtPriceX96).mul(state.sqrtPriceX96);
             state.sell0 = (amount1as0 < amount0as96);
             if (state.sell0) {
-                state.delta0 = amount0as96.sub(amount1as0).div(state.amountRatioX96.mul(state.priceX96).div(Q96).add(Q96));
-                
+                state.delta0 = amount0as96.sub(amount1as0).div(FullMath.mulDiv(state.amountRatioX96, priceX192, Q192).add(Q96));
             } else {
-                state.delta0 = amount1as0.sub(amount0as96).div(state.amountRatioX96.mul(state.priceX96).div(Q96).add(Q96));
+                state.delta0 = amount1as0.sub(amount0as96).div(FullMath.mulDiv(state.amountRatioX96, priceX192, Q192).add(Q96));
             }
         }
         if (state.delta0 > 0) {
+            state.priceX96 = FullMath.mulDiv(state.sqrtPriceX96, state.sqrtPriceX96, Q96);
             if (state.sell0) {
                 uint256 amountOut = _swap(
                                         abi.encodePacked(params.token0, params.fee, params.token1), 
                                         state.delta0, 
-                                        params.deadline
+                                        block.timestamp
                                     );
                 amount0 = amount0.sub(state.delta0);
                 amount1 = amount1.add(amountOut);
             } else {
-                state.delta1 = state.delta0.mul(state.priceX96).div(Q96);
+                state.delta1 = FullMath.mulDiv(state.delta0, state.priceX96, Q96);
                 // prevent possible rounding to 0 issue
                 if (state.delta1 > 0) {
-                    uint256 amountOut = _swap(abi.encodePacked(params.token1, params.fee, params.token0), state.delta1, params.deadline);
+                    uint256 amountOut = _swap(
+                        abi.encodePacked(params.token1, params.fee, params.token0),
+                        state.delta1,
+                        block.timestamp
+                        );
                     amount0 = amount0.add(amountOut);
                     amount1 = amount1.sub(state.delta1);
                 }
             }
         }
-            
-        
-        
     }
 
     function _swap(bytes memory swapPath, uint256 amount, uint256 deadline) private returns (uint256 amountOut) {

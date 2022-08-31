@@ -9,7 +9,6 @@ import "./external/uniswap/v3-core/interfaces/IUniswapV3Factory.sol";
 import "./external/uniswap/v3-periphery/interfaces/INonfungiblePositionManager.sol";
 import "./external/uniswap/v3-periphery/interfaces/ISwapRouter.sol";
 
-
 interface ICompounder is IERC721Receiver {
    
     // config changes
@@ -128,7 +127,6 @@ interface ICompounder is IERC721Receiver {
         int24 tickUpper; 
         uint256 amount0;
         uint256 amount1;
-        uint256 deadline;
         RewardConversion rewardToken;
         bool doSwap;
     }
