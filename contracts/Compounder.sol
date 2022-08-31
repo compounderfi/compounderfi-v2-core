@@ -14,9 +14,8 @@ import "./external/uniswap/v3-core/libraries/FullMath.sol";
 import "./external/uniswap/v3-periphery/libraries/LiquidityAmounts.sol";
 import "./external/uniswap/v3-periphery/interfaces/INonfungiblePositionManager.sol";
 
-
 import "./ICompounder.sol";
-import "hardhat/console.sol";
+//import "hardhat/console.sol";
 
 contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
 
@@ -68,7 +67,7 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
     ) external override nonReentrant returns (bytes4) {
         require(msg.sender == address(nonfungiblePositionManager), "!univ3 pos");
 
-        _addToken(tokenId, tx.origin);
+        _addToken(tokenId, tx.origin); //use tx.origin to support multicall sending of multiple positions
         emit TokenDeposited(tx.origin, tokenId);
         return this.onERC721Received.selector;
     }
@@ -99,7 +98,7 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
         require(state.amount0 > 0 || state.amount1 > 0);
 
 
-        if(params.doSwap) {
+        if(params.doSwap) { //gas optimization to load less slots when they're not needed
             (, , state.token0, state.token1, state.fee, state.tickLower, state.tickUpper, , , , , ) = 
             nonfungiblePositionManager.positions(params.tokenId);
         } else {
@@ -110,7 +109,7 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
         state.excess0 = ownerBalances[state.tokenOwner][state.token0];
         state.excess1 = ownerBalances[state.tokenOwner][state.token1];
 
-        if (state.excess0 > 0) {
+        if (state.excess0 > 0) { //gas optimization - boolean comparision is less expensive than adding
             state.amount0 = state.amount0.add(state.excess0);
         }
         if (state.excess1 > 0) {
@@ -118,9 +117,11 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
         }
         
         if (params.doSwap) {
-            // checks oracle for fair price - swaps to position ratio (considering estimated reward) - calculates max amount to be added
+
+            //caller chooses fee of their choice - they earn 1/40th when incurring the
+            //extra gas cost of swapping but only 1/50th when not swapping
             if (params.rewardConversion == RewardConversion.TOKEN_0) {
-                fees0 = state.amount0 / 40;
+                fees0 = state.amount0 / 40; 
                 state.amount0 = state.amount0.sub(fees0);
             } else {
                 fees1 = state.amount1 / 40;
@@ -139,7 +140,8 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
                 params.doSwap
             );
             (state.amount0, state.amount1) = 
-                _swapToPriceRatio(swapParams);
+                _swapToPriceRatio(swapParams); //returns amount of 0 and 1 after swapping
+            
 
         } else {
             if (params.rewardConversion == RewardConversion.TOKEN_0) {
@@ -165,35 +167,22 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
             );
         }
 
-        // fees are always calculated based on added amount
         if (params.doSwap) {
-            if (state.excess0 > 0) {
-                ownerBalances[state.tokenOwner][state.token0] = 0;
+            if (state.excess0 > 0) { //gas optimization
+                ownerBalances[state.tokenOwner][state.token0] = 0; //assume there's none left to save save (there is a negigble amount)
             }
             if (state.excess1 > 0) {
                 ownerBalances[state.tokenOwner][state.token1] = 0;
             }
             
-            uint ans1 = 0;
-            if(state.amount1.sub(compounded1) > 0) {
-                ans1 = compounded1.div(state.amount1.sub(compounded1));
-            }
-
-            uint ans0 = 0;
-            if(state.amount0.sub(compounded0) > 0) {
-                ans0 = compounded0.div(state.amount0.sub(compounded0));
-            }
-
-            console.log("tokenid:", params.tokenId, ans0, ans1);
             if (params.rewardConversion == RewardConversion.TOKEN_0) {
-                
                 _increaseBalanceCaller(msg.sender, state.token0, state.amount0.sub(compounded0).add(fees0));
             } else {
                 
                 _increaseBalanceCaller(msg.sender, state.token1, state.amount1.sub(compounded1).add(fees1));
             }
         } else {
-            ownerBalances[state.tokenOwner][state.token0] = state.amount0.sub(compounded0);
+            ownerBalances[state.tokenOwner][state.token0] = state.amount0.sub(compounded0); //owner gets the remaining balance
             ownerBalances[state.tokenOwner][state.token1] = state.amount1.sub(compounded1);
             if (params.rewardConversion == RewardConversion.TOKEN_0) {
                 _increaseBalanceCaller(msg.sender, state.token0, fees0);
@@ -271,14 +260,19 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
     ) external override nonReentrant onlyPositionOwner(tokenId) {
         require(to != address(this), "to==this");
 
+         if (withdrawBalances) {// fine to withdraw before because the function is nonReetrant
+            nonfungiblePositionManager.collect(
+                INonfungiblePositionManager.CollectParams(tokenId, to, type(uint128).max, type(uint128).max)
+            );
+            
+            (, , address token0, address token1, , , , , , , , ) = nonfungiblePositionManager.positions(tokenId);
+
+            _withdrawFullBalancesInternalOwner(token0, token1, to);
+        }
+
         _removeToken(msg.sender, tokenId);
         nonfungiblePositionManager.safeTransferFrom(address(this), to, tokenId, data);
         emit TokenWithdrawn(msg.sender, to, tokenId);
-
-        if (withdrawBalances) {
-            (, , address token0, address token1, , , , , , , , ) = nonfungiblePositionManager.positions(tokenId);
-            _withdrawFullBalancesInternalOwner(token0, token1, to);
-        }
     }
 
     /**
@@ -310,26 +304,6 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
     }
 
     //for owner only
-    function _setBalanceOwner(address account, address tokenAddress, uint256 amount) private {
-        uint currentBalance = ownerBalances[account][tokenAddress];
-        
-        if (amount > currentBalance) {
-            ownerBalances[account][tokenAddress] = amount;
-            emit BalanceAdded(account, tokenAddress, amount.sub(currentBalance));
-        } else if (amount < currentBalance) {
-            ownerBalances[account][tokenAddress] = amount;
-            emit BalanceRemoved(account, tokenAddress, currentBalance.sub(amount));
-        }
-    }
-
-    //for owner only
-    function _setBalanceNoEventOwner(address account, address tokenAddress, uint256 amount) private {
-        ownerBalances[account][tokenAddress] = amount;
-    }
-
-
-
-    //for owner only
     function _withdrawFullBalancesInternalOwner(address token0, address token1, address to) private {
         uint256 balance0 = ownerBalances[msg.sender][token0];
         if (balance0 > 0) {
@@ -343,9 +317,9 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
 
     //for owner only
     function _withdrawBalanceInternalOwner(address tokenAddress, address to, uint256 amount) private {
-        ownerBalances[msg.sender][tokenAddress] = ownerBalances[msg.sender][tokenAddress].sub(amount);
-        emit BalanceRemoved(msg.sender, tokenAddress, amount);
+        ownerBalances[msg.sender][tokenAddress] = 0;
         SafeERC20.safeTransfer(IERC20(tokenAddress), to, amount);
+
         emit BalanceWithdrawn(msg.sender, tokenAddress, to, amount);
     }
 
