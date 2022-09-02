@@ -174,21 +174,15 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
             if (state.excess1 > 0) {
                 ownerBalances[state.tokenOwner][state.token1] = 0;
             }
-            
-            if (params.rewardConversion == RewardConversion.TOKEN_0) {
-                _increaseBalanceCaller(msg.sender, state.token0, state.amount0.sub(compounded0).add(fees0));
-            } else {
-                
-                _increaseBalanceCaller(msg.sender, state.token1, state.amount1.sub(compounded1).add(fees1));
-            }
         } else {
             ownerBalances[state.tokenOwner][state.token0] = state.amount0.sub(compounded0); //owner gets the remaining balance
             ownerBalances[state.tokenOwner][state.token1] = state.amount1.sub(compounded1);
-            if (params.rewardConversion == RewardConversion.TOKEN_0) {
-                _increaseBalanceCaller(msg.sender, state.token0, fees0);
-            } else {
-                _increaseBalanceCaller(msg.sender, state.token1, fees1);
-            }
+        }
+
+        if (params.rewardConversion == RewardConversion.TOKEN_0) {
+            _increaseBalanceCaller(msg.sender, state.token0, fees0);
+        } else {
+            _increaseBalanceCaller(msg.sender, state.token1, fees1);
         }
 
         //emit AutoCompounded(msg.sender, params.tokenId, compounded0, compounded1, fees0, fees1, state.token0, state.token1);

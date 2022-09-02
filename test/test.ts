@@ -43,10 +43,10 @@ describe("AutoCompounder Tests", function () {
     });
     it("Test random positions", async function () {
         let x = 0;
-        const specificPositions = [291];
+        const specificPositions = [292228];
         
-        //for(const tokenId of specificPositions) {
-        for(let tokenId = 10; tokenId < 100; tokenId ++) {
+        for(const tokenId of specificPositions) {
+        //for(let tokenId = 10; tokenId < 100; tokenId ++) {
 
             const positionOwnerAddress = await nonfungiblePositionManager.ownerOf(tokenId);
             await owner.sendTransaction({
@@ -191,7 +191,7 @@ describe("AutoCompounder Tests", function () {
   
       }
     })
-  
+    
     it("test position transfer and withdrawal", async function () {
         const nftId1 = 1
         const nftId2 = 5
