@@ -43,10 +43,10 @@ describe("AutoCompounder Tests", function () {
     });
     it("Test random positions", async function () {
         let x = 0;
-        const specificPositions = [292228];
+        //const specificPositions = [292228];
         
-        for(const tokenId of specificPositions) {
-        //for(let tokenId = 10; tokenId < 100; tokenId ++) {
+        //for(const tokenId of specificPositions) {
+        for(let tokenId = 10; tokenId < 100; tokenId ++) {
 
             const positionOwnerAddress = await nonfungiblePositionManager.ownerOf(tokenId);
             await owner.sendTransaction({
@@ -76,11 +76,11 @@ describe("AutoCompounder Tests", function () {
                 let compounded;
                 try {
                     await nonfungiblePositionManager.connect(positionOwnerSigner)["safeTransferFrom(address,address,uint256)"](positionOwnerAddress, contract.address, tokenId, { gasLimit: 500000 });
-                    compounded = await contract.connect(otherAccount).callStatic.autoCompound( { tokenId, rewardConversion: x, doSwap: true });
+                    compounded = await contract.connect(otherAccount).callStatic.autoCompound( { tokenId, rewardConversion: x == 0, doSwap: false });
                 } catch(e) {
                     console.log(e, tokenId)
                 }
-                await contract.connect(otherAccount).autoCompound( { tokenId, rewardConversion: x, doSwap: true });
+                await contract.connect(otherAccount).autoCompound( { tokenId, rewardConversion: x == 0, doSwap: false });
                 //console.log(compounded)
                 const token0after = await contract.callerBalances(callerAdress, token0)
                 const token1after = await contract.callerBalances(callerAdress, token1)

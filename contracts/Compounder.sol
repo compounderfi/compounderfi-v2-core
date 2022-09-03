@@ -120,7 +120,7 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
 
             //caller chooses fee of their choice - they earn 1/40th when incurring the
             //extra gas cost of swapping but only 1/50th when not swapping
-            if (params.rewardConversion == RewardConversion.TOKEN_0) {
+            if (params.rewardConversion) {
                 fees0 = state.amount0 / 40; 
                 state.amount0 = state.amount0.sub(fees0);
             } else {
@@ -134,17 +134,15 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
                 state.fee, 
                 state.tickLower, 
                 state.tickUpper, 
-                state.amount0, 
-                state.amount1, 
-                params.rewardConversion, 
-                params.doSwap
+                state.amount0,
+                state.amount1
             );
             (state.amount0, state.amount1) = 
                 _swapToPriceRatio(swapParams); //returns amount of 0 and 1 after swapping
             
 
         } else {
-            if (params.rewardConversion == RewardConversion.TOKEN_0) {
+            if (params.rewardConversion) {
                 fees0 = state.amount0 / 50;
                 state.amount0 = state.amount0.sub(fees0);
             } else {
@@ -179,7 +177,7 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
             ownerBalances[state.tokenOwner][state.token1] = state.amount1.sub(compounded1);
         }
 
-        if (params.rewardConversion == RewardConversion.TOKEN_0) {
+        if (params.rewardConversion) {
             _increaseBalanceCaller(msg.sender, state.token0, fees0);
         } else {
             _increaseBalanceCaller(msg.sender, state.token1, fees1);
@@ -407,21 +405,22 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
         // *a smaller pool will not yield significant fees
 
 
-        (state.positionAmount0, state.positionAmount1) = LiquidityAmounts.getAmountsForLiquidity(
-                                                            state.sqrtPriceX96, 
-                                                            TickMath.getSqrtRatioAtTick(params.tickLower), 
-                                                            TickMath.getSqrtRatioAtTick(params.tickUpper), 
-                                                            Q96); // dummy value we just need ratio
 
         // calculate how much of the position needs to be converted to the other token
-        if (state.positionAmount0 == 0) {
+        if (state.tick >= params.tickUpper) {
             state.delta0 = amount0;
             state.sell0 = true;
-        } else if (state.positionAmount1 == 0) {
+        } else if (state.tick <= params.tickLower) {
             state.priceX96 = FullMath.mulDiv(state.sqrtPriceX96, state.sqrtPriceX96, Q96);
             state.delta0 = FullMath.mulDiv(amount1, Q96, state.priceX96);
             state.sell0 = false;
         } else {
+            (state.positionAmount0, state.positionAmount1) = LiquidityAmounts.getAmountsForLiquidity(
+                                                            state.sqrtPriceX96, 
+                                                            TickMath.getSqrtRatioAtTick(params.tickLower), 
+                                                            TickMath.getSqrtRatioAtTick(params.tickUpper), 
+                                                            Q96); // dummy value we just need ratio
+                                                            
             state.amountRatioX96 = FullMath.mulDiv(state.positionAmount0, Q96, state.positionAmount1);
 
             uint256 amount1as0 = state.amountRatioX96.mul(amount1);

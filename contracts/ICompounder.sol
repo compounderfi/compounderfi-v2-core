@@ -113,7 +113,7 @@ interface ICompounder is IERC721Receiver {
         uint256 tokenId;
         
         // which token to convert to
-        RewardConversion rewardConversion;
+        bool rewardConversion;
 
         // do swap - to add max amount to position (costs more gas)
         bool doSwap;
@@ -127,8 +127,6 @@ interface ICompounder is IERC721Receiver {
         int24 tickUpper; 
         uint256 amount0;
         uint256 amount1;
-        RewardConversion rewardToken;
-        bool doSwap;
     }
 
     struct AutoCompoundState {
@@ -145,8 +143,6 @@ interface ICompounder is IERC721Receiver {
     }
 
     struct SwapState {
-        uint256 rewardAmount0;
-        uint256 rewardAmount1;
         uint256 positionAmount0;
         uint256 positionAmount1;
         int24 tick;
