@@ -75,15 +75,15 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
     /**
      * @notice Autocompounds for a given NFT (anyone can call this and gets a percentage of the fees)
      * @param params Autocompound specific parameters (tokenId, ...)
-     * @return fees0 Amount of fees0 collected by the protocol AND caller
-     * @return fees1 Amount of fees1 collected by the protocol AND caller
+     * @return fees Amount of fees collected by the protocol AND caller
+     * @return tokenAddress Token the fees are in
      * @return compounded0 Amount of token0 that was compounded
      * @return compounded1 Amount of token1 that was compounded
      */
     function autoCompound(AutoCompoundParams memory params) 
         override 
         external
-        returns (uint256 fees0, uint256 fees1, uint256 compounded0, uint256 compounded1) 
+        returns (uint256 fees, address tokenAddress, uint256 compounded0, uint256 compounded1) 
     {   
         AutoCompoundState memory state;
         state.tokenOwner = ownerOf[params.tokenId];
@@ -121,11 +121,11 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
             //caller chooses fee of their choice - they earn 1/40th when incurring the
             //extra gas cost of swapping but only 1/50th when not swapping
             if (params.rewardConversion) {
-                fees0 = state.amount0 / 40; 
-                state.amount0 = state.amount0.sub(fees0);
+                fees = state.amount0 / 40; 
+                state.amount0 = state.amount0.sub(fees);
             } else {
-                fees1 = state.amount1 / 40;
-                state.amount1 = state.amount1.sub(fees1);
+                fees = state.amount1 / 40;
+                state.amount1 = state.amount1.sub(fees);
             }
             
             SwapParams memory swapParams = SwapParams(
@@ -143,11 +143,11 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
 
         } else {
             if (params.rewardConversion) {
-                fees0 = state.amount0 / 50;
-                state.amount0 = state.amount0.sub(fees0);
+                fees = state.amount0 / 50;
+                state.amount0 = state.amount0.sub(fees);
             } else {
-                fees1 = state.amount1 / 50;
-                state.amount1 = state.amount1.sub(fees1);
+                fees = state.amount1 / 50;
+                state.amount1 = state.amount1.sub(fees);
             }
         }
         //console.log(state.amount0, state.amount1);
@@ -178,12 +178,13 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
         }
 
         if (params.rewardConversion) {
-            _increaseBalanceCaller(msg.sender, state.token0, fees0);
+            tokenAddress = state.token0;
+            _increaseBalanceCaller(msg.sender, state.token0, fees);
+            
         } else {
-            _increaseBalanceCaller(msg.sender, state.token1, fees1);
+            tokenAddress = state.token1;
+            _increaseBalanceCaller(msg.sender, state.token1, fees);
         }
-
-        //emit AutoCompounded(msg.sender, params.tokenId, compounded0, compounded1, fees0, fees1, state.token0, state.token1);
     }
 
     /**
@@ -291,7 +292,6 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
     function _increaseBalanceCaller(address account, address tokenAddress, uint256 amount) private {
         if(amount > 0) {
             callerBalances[account][tokenAddress] = callerBalances[account][tokenAddress].add(amount);
-            //emit BalanceAdded(account, tokenAddress, amount);
         }
     }
 
@@ -311,8 +311,6 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
     function _withdrawBalanceInternalOwner(address tokenAddress, address to, uint256 amount) private {
         ownerBalances[msg.sender][tokenAddress] = 0;
         SafeERC20.safeTransfer(IERC20(tokenAddress), to, amount);
-
-        emit BalanceWithdrawn(msg.sender, tokenAddress, to, amount);
     }
 
     //for caller only

@@ -18,32 +18,8 @@ interface ICompounder is IERC721Receiver {
     event TokenDeposited(address account, uint256 tokenId);
     event TokenWithdrawn(address account, address to, uint256 tokenId);
 
-    // balance movements
-    event BalanceAdded(address account, address token, uint256 amount);
-    event BalanceRemoved(address account, address token, uint256 amount);
-    event BalanceWithdrawn(address account, address token, address to, uint256 amount);
-
-    // autocompound event
-    event AutoCompounded(
-        address account,
-        uint256 tokenId,
-        uint256 amountAdded0,
-        uint256 amountAdded1,
-        uint256 fees0,
-        uint256 fees1,
-        address token0,
-        address token1
-    );
-
     /// @notice Reward which is payed to compounder - less or equal to totalRewardX64
     function protocolReward() external view returns (uint64);
-
-    /**
-     * @notice Management method to lower reward or change ratio between total and compounder reward (onlyOwner)
-     * @param _totalRewardX64 new total reward (can't be higher than current total reward)
-     * @param _compounderRewardX64 new compounder reward
-     */
-    //function setReward(uint64 _totalRewardX64, uint64 _compounderRewardX64) external;
 
     /// @notice Owner of a managed NFT
     function ownerOf(uint256 tokenId) external view returns (address owner);
@@ -157,12 +133,12 @@ interface ICompounder is IERC721Receiver {
     /**
      * @notice Autocompounds for a given NFT (anyone can call this and gets a percentage of the fees)
      * @param params Autocompound specific parameters (tokenId, ...)
-     * @return fees0 Amount of token0 caller recieves
-     * @return fees1 Amount of token1 caller recieves
+     * @return fees Amount of token0 caller recieves
+     * @return tokenAddress The token the fee is collected in 
      * @return compounded0 Amount of token0 that was compounded
      * @return compounded1 Amount of token1 that was compounded
      */
-    function autoCompound(AutoCompoundParams calldata params) external returns (uint256 fees0, uint256 fees1, uint256 compounded0, uint256 compounded1);
+    function autoCompound(AutoCompoundParams calldata params) external returns (uint256 fees, address tokenAddress, uint256 compounded0, uint256 compounded1);
 
     struct DecreaseLiquidityAndCollectParams {
         uint256 tokenId;
