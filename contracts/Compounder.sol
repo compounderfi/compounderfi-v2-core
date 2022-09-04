@@ -72,6 +72,7 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
         return this.onERC721Received.selector;
     }
 
+    event AutoCompound();
     /**
      * @notice Autocompounds for a given NFT (anyone can call this and gets a percentage of the fees)
      * @param params Autocompound specific parameters (tokenId, ...)
@@ -185,6 +186,7 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
             tokenAddress = state.token1;
             _increaseBalanceCaller(msg.sender, state.token1, fees);
         }
+        emit AutoCompound();
     }
 
     /**
