@@ -17,18 +17,25 @@ import "./external/uniswap/v3-periphery/interfaces/INonfungiblePositionManager.s
 import "./ICompounder.sol";
 //import "hardhat/console.sol";
 
+/// @title Compounder, an automatic reinvesting tool for uniswap v3 positions
+/// @author kev1n
+/** @notice 
+ * Owner refers to the owner of the uniswapv3 NFT
+ * Caller refers to the person who calls the AutoCompound function for the owner, which will automatically reinvest the fees for that position
+ * Position refers to the uniswap v3 position/NFT
+ * Protocol refers to compounder.fi, the organization who created this contract
+**/
 contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
 
     using SafeMath for uint256;
 
-    uint128 constant Q64 = 2**64;
     uint128 constant Q96 = 2**96;
     uint256 constant Q192 = 2**192;
 
     // max positions
     uint32 constant public MAX_POSITIONS_PER_ADDRESS = 100;
 
-    //protocol takes a fifth, aka callers get 1.6% for no-swap compounds and 2% for swaps
+    //protocol takes a fifth of what Callers make; callers get 1.6% for no-swap compounds and 2% for swaps
     uint64 public constant override protocolReward = 5;
 
     // uniswap v3 components
@@ -36,10 +43,10 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
     INonfungiblePositionManager private immutable nonfungiblePositionManager;
     ISwapRouter private immutable swapRouter;
 
-    mapping(uint256 => address) public override ownerOf;
-    mapping(address => uint256[]) public override accountTokens;
-    mapping(address => mapping(address => uint256)) public override callerBalances;
-    mapping(address => mapping(address => uint256)) public override ownerBalances;
+    mapping(uint256 => address) public override ownerOf; //maps a tokenID to its owner - when sent to this contract to be autocompounded
+    mapping(address => uint256[]) public override accountTokens; //maps an address to all of the tokens it owns 
+    mapping(address => mapping(address => uint256)) public override callerBalances; //maps a caller's address to each token's address to how much is owed to them by the protocol (rewards from calling the autocompound function)
+    mapping(address => mapping(address => uint256)) public override ownerBalances; //maps a owner's address to each token's address to how much is owed to them by the protocol (excess tokens from the autocompound function are given back to the owner of the position)
 
     constructor(IUniswapV3Factory _factory, INonfungiblePositionManager _nonfungiblePositionManager, ISwapRouter _swapRouter) {
         factory = _factory;
@@ -47,17 +54,30 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
         swapRouter = _swapRouter;
     }
     
+    /**
+     * @notice modifier that makes sure the owner of a position is the sender
+     * @param tokenId the tokenId of the position being compared
+     */
     modifier onlyPositionOwner(uint256 tokenId) {
         require(ownerOf[tokenId] == msg.sender, "!owner");
         _;
     }
 
+    /**
+     * @notice finds the tokens an address has inside of the protocol
+     * @param   addr  the address of the account
+     * @return  uint256[]  an array of the positions he/she has in the protocol 
+     */
     function addressToTokens(address addr) external view override returns (uint256[] memory) {
         return accountTokens[addr];
     }
     
+
+    
     /**
-     * @dev When receiving a Uniswap V3 NFT, deposits token with `from` as owner
+     * @notice  When receiving a Uniswap V3 NFT, deposits token with `from` as owner
+     * @param   tokenId  the tokenId being deposited into the protocol
+     * @return  bytes4  openzeppelin: "It must return its Solidity selector to confirm the token transfer"
      */
     function onERC721Received(
         address,
@@ -67,7 +87,7 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
     ) external override nonReentrant returns (bytes4) {
         require(msg.sender == address(nonfungiblePositionManager), "!univ3 pos");
 
-        _addToken(tokenId, tx.origin); //use tx.origin to support multicall sending of multiple positions
+        _addToken(tokenId, tx.origin); //use tx.origin to support multicall sending of multiple positions in one txn
         emit TokenDeposited(tx.origin, tokenId);
         return this.onERC721Received.selector;
     }
@@ -75,7 +95,7 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
     event AutoCompound();
     /**
      * @notice Autocompounds for a given NFT (anyone can call this and gets a percentage of the fees)
-     * @param params Autocompound specific parameters (tokenId, ...)
+     * @param params Autocompound specific parameters
      * @return fees Amount of fees collected by the protocol AND caller
      * @return tokenAddress Token the fees are in
      * @return compounded0 Amount of token0 that was compounded
@@ -271,7 +291,7 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
     }
 
     /**
-     * @notice Withdraws token balance for a address and token
+     * @notice Withdraws token balance for a token owner and withdraws token
      * @param tokenAddress Address of token to withdraw
      * @param to Address to send to
      */

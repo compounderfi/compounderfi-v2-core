@@ -10,9 +10,6 @@ import "./external/uniswap/v3-periphery/interfaces/INonfungiblePositionManager.s
 import "./external/uniswap/v3-periphery/interfaces/ISwapRouter.sol";
 
 interface ICompounder is IERC721Receiver {
-   
-    // config changes
-    event RewardUpdated(address account, uint64 totalRewardX64, uint64 compounderRewardX64);
 
     // token movements
     event TokenDeposited(address account, uint256 tokenId);
@@ -83,7 +80,12 @@ interface ICompounder is IERC721Receiver {
     /// @notice how reward should be converted
     enum RewardConversion { TOKEN_0, TOKEN_1 }
 
-    /// @notice params for autoCompound()
+    /**  
+        @notice the parameters for the autoCompound function
+        @param tokenId the tokenId being selected to compound
+        @param rewardConversion true - take token0 as the caller fee, false - take token1 as the caller fee
+        @param doSwap true - caller incurs the extra gas cost for 2% rewards of their selected token fee, false - caller spends less gas but gets 1.6% rewards of their specified token
+    */
     struct AutoCompoundParams {
         // tokenid to autocompound
         uint256 tokenId;
