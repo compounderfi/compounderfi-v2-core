@@ -31,7 +31,12 @@ uint32 MAX_POSITIONS_PER_ADDRESS
 uint64 protocolReward
 ```
 
-Reward which is payed to compounder - less or equal to totalRewardX64
+reward paid out to compounder as a fraction of the caller's collected fees. ex: if protocolReward if 5, then the protocol will take 1/5 or 20% of the caller's fees and the caller will take 80%
+
+#### Return Values
+
+| Name | Type | Description |
+| ---- | ---- | ----------- |
 
 ### factory
 
@@ -57,7 +62,17 @@ contract ISwapRouter swapRouter
 mapping(uint256 => address) ownerOf
 ```
 
-Owner of a managed NFT
+returns the owner of a compounder-managed NFT
+
+#### Parameters
+
+| Name | Type | Description |
+| ---- | ---- | ----------- |
+
+#### Return Values
+
+| Name | Type | Description |
+| ---- | ---- | ----------- |
 
 ### accountTokens
 
@@ -65,7 +80,17 @@ Owner of a managed NFT
 mapping(address => uint256[]) accountTokens
 ```
 
-Tokens of account by index
+Tokens of owner by index
+
+#### Parameters
+
+| Name | Type | Description |
+| ---- | ---- | ----------- |
+
+#### Return Values
+
+| Name | Type | Description |
+| ---- | ---- | ----------- |
 
 ### callerBalances
 
@@ -73,7 +98,7 @@ Tokens of account by index
 mapping(address => mapping(address => uint256)) callerBalances
 ```
 
-Returns balance of token of account for callers of positions
+Returns balance of token of callers
 
 #### Parameters
 
@@ -91,7 +116,7 @@ Returns balance of token of account for callers of positions
 mapping(address => mapping(address => uint256)) ownerBalances
 ```
 
-Returns balance of token of account for owners of positions
+Returns balance of token for owners of positions
 
 #### Parameters
 
@@ -224,7 +249,7 @@ _Needs to do collect at the same time, otherwise the available amount would be a
 function collect(struct INonfungiblePositionManager.CollectParams params) external returns (uint256 amount0, uint256 amount1)
 ```
 
-Forwards collect call to NonfungiblePositionManager - can only be called by the NFT owner
+Forwards collect call from NonfungiblePositionManager to nft owner - can only be called by the NFT owner
 
 #### Parameters
 
@@ -262,7 +287,7 @@ Removes a NFT from the protocol and safe transfers it to address to
 function withdrawBalanceOwner(address tokenAddress, address to) external
 ```
 
-Withdraws token balance for a token owner and withdraws token
+Withdraws token balance for an owner (their leftover uniswapv3 fees)
 
 #### Parameters
 
@@ -276,6 +301,15 @@ Withdraws token balance for a token owner and withdraws token
 ```solidity
 function withdrawBalanceCaller(address tokenAddress, address to) external
 ```
+
+Withdraws token balance for a caller (their fees for compounding)
+
+#### Parameters
+
+| Name | Type | Description |
+| ---- | ---- | ----------- |
+| tokenAddress | address | Address of token to withdraw |
+| to | address | Address to send to |
 
 ### _increaseBalanceCaller
 
@@ -351,7 +385,13 @@ event TokenWithdrawn(address account, address to, uint256 tokenId)
 function protocolReward() external view returns (uint64)
 ```
 
-Reward which is payed to compounder - less or equal to totalRewardX64
+reward paid out to compounder as a fraction of the caller's collected fees. ex: if protocolReward if 5, then the protocol will take 1/5 or 20% of the caller's fees and the caller will take 80%
+
+#### Return Values
+
+| Name | Type | Description |
+| ---- | ---- | ----------- |
+| [0] | uint64 | the protocolReward |
 
 ### ownerOf
 
@@ -359,7 +399,19 @@ Reward which is payed to compounder - less or equal to totalRewardX64
 function ownerOf(uint256 tokenId) external view returns (address owner)
 ```
 
-Owner of a managed NFT
+returns the owner of a compounder-managed NFT
+
+#### Parameters
+
+| Name | Type | Description |
+| ---- | ---- | ----------- |
+| tokenId | uint256 | the tokenId being checked |
+
+#### Return Values
+
+| Name | Type | Description |
+| ---- | ---- | ----------- |
+| owner | address | the owner of the tokenId |
 
 ### accountTokens
 
@@ -367,7 +419,20 @@ Owner of a managed NFT
 function accountTokens(address account, uint256 index) external view returns (uint256 tokenId)
 ```
 
-Tokens of account by index
+Tokens of owner by index
+
+#### Parameters
+
+| Name | Type | Description |
+| ---- | ---- | ----------- |
+| account | address | the owner being checked |
+| index | uint256 | the index of the array |
+
+#### Return Values
+
+| Name | Type | Description |
+| ---- | ---- | ----------- |
+| tokenId | uint256 | the tokenId at that index for that owner |
 
 ### ownerBalances
 
@@ -375,7 +440,7 @@ Tokens of account by index
 function ownerBalances(address account, address token) external view returns (uint256 balance)
 ```
 
-Returns balance of token of account for owners of positions
+Returns balance of token for owners of positions
 
 #### Parameters
 
@@ -396,7 +461,7 @@ Returns balance of token of account for owners of positions
 function callerBalances(address account, address token) external view returns (uint256 balance)
 ```
 
-Returns balance of token of account for callers of positions
+Returns balance of token of callers
 
 #### Parameters
 
@@ -417,19 +482,19 @@ Returns balance of token of account for callers of positions
 function addressToTokens(address addr) external view returns (uint256[] openPositions)
 ```
 
-Returns balance of token of account for callers of positions
+finds the tokens an address has inside of the protocol
 
 #### Parameters
 
 | Name | Type | Description |
 | ---- | ---- | ----------- |
-| addr | address | Address of account |
+| addr | address | the address of the account |
 
 #### Return Values
 
 | Name | Type | Description |
 | ---- | ---- | ----------- |
-| openPositions | uint256[] | an array of the open positions for addr |
+| openPositions | uint256[] | an array of the positions he/she has in the protocol |
 
 ### withdrawToken
 
@@ -446,46 +511,37 @@ Removes a NFT from the protocol and safe transfers it to address to
 | tokenId | uint256 | TokenId of token to remove |
 | to | address | Address to send to |
 | withdrawBalances | bool | When true sends the available balances for token0 and token1 as well |
-| data | bytes | data which is sent with the safeTransferFrom call (optional) |
+| data | bytes | data which is sent with the safeTransferFrom call |
 
 ### withdrawBalanceOwner
 
 ```solidity
-function withdrawBalanceOwner(address token, address to) external
+function withdrawBalanceOwner(address tokenAddress, address to) external
 ```
 
-Withdraws token balance for a address and token for an owner
+Withdraws token balance for an owner (their leftover uniswapv3 fees)
 
 #### Parameters
 
 | Name | Type | Description |
 | ---- | ---- | ----------- |
-| token | address | Address of token to withdraw |
+| tokenAddress | address | Address of token to withdraw |
 | to | address | Address to send to |
 
 ### withdrawBalanceCaller
 
 ```solidity
-function withdrawBalanceCaller(address token, address to) external
+function withdrawBalanceCaller(address tokenAddress, address to) external
 ```
 
-Withdraws token balance for a address and token for a caller
+Withdraws token balance for a caller (their fees for compounding)
 
 #### Parameters
 
 | Name | Type | Description |
 | ---- | ---- | ----------- |
-| token | address | Address of token to withdraw |
+| tokenAddress | address | Address of token to withdraw |
 | to | address | Address to send to |
-
-### RewardConversion
-
-```solidity
-enum RewardConversion {
-  TOKEN_0,
-  TOKEN_1
-}
-```
 
 ### AutoCompoundParams
 
@@ -609,7 +665,7 @@ _Needs to do collect at the same time, otherwise the available amount would be a
 function collect(struct INonfungiblePositionManager.CollectParams params) external returns (uint256 amount0, uint256 amount1)
 ```
 
-Forwards collect call to NonfungiblePositionManager - can only be called by the NFT owner
+Forwards collect call from NonfungiblePositionManager to nft owner - can only be called by the NFT owner
 
 #### Parameters
 

@@ -289,7 +289,7 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
 
     /**
      * @notice Withdraws token balance for an owner (their leftover uniswapv3 fees)
-     * @param token Address of token to withdraw
+     * @param tokenAddress Address of token to withdraw
      * @param to Address to send to
      */
 
@@ -302,7 +302,7 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
 
     /**
      * @notice Withdraws token balance for a caller (their fees for compounding)
-     * @param token Address of token to withdraw
+     * @param tokenAddress Address of token to withdraw
      * @param to Address to send to
      */
     

@@ -30,9 +30,10 @@ interface ICompounder is IERC721Receiver {
     function ownerOf(uint256 tokenId) external view returns (address owner);
 
     /**
-     * @notice  When receiving a Uniswap V3 NFT, deposits token with `from` as owner
-     * @param   tokenId  the tokenId being deposited into the protocol
-     * @return  bytes4  openzeppelin: "It must return its Solidity selector to confirm the token transfer"
+     * @notice  Tokens of owner by index
+     * @param   account the owner being checked
+     * @param   index the index of the array
+     * @return  tokenId the tokenId at that index for that owner
      */
     function accountTokens(address account, uint256 index) external view returns (uint256 tokenId);
 
@@ -55,7 +56,7 @@ interface ICompounder is IERC721Receiver {
     /**
      * @notice finds the tokens an address has inside of the protocol
      * @param   addr  the address of the account
-     * @return  uint256[]  an array of the positions he/she has in the protocol 
+     * @return  openPositions  an array of the positions he/she has in the protocol 
      */
     function addressToTokens(address addr) external view returns (uint256[] memory openPositions);
 
@@ -77,17 +78,17 @@ interface ICompounder is IERC721Receiver {
 
     /**
      * @notice Withdraws token balance for an owner (their leftover uniswapv3 fees)
-     * @param token Address of token to withdraw
+     * @param tokenAddress Address of token to withdraw
      * @param to Address to send to
      */
-    function withdrawBalanceOwner(address token, address to) external;
+    function withdrawBalanceOwner(address tokenAddress, address to) external;
 
     /**
      * @notice Withdraws token balance for a caller (their fees for compounding)
-     * @param token Address of token to withdraw
+     * @param tokenAddress Address of token to withdraw
      * @param to Address to send to
      */
-    function withdrawBalanceCaller(address token, address to) external;
+    function withdrawBalanceCaller(address tokenAddress, address to) external;
 
     /**  
         @notice the parameters for the autoCompound function
