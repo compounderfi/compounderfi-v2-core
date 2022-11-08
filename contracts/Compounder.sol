@@ -242,7 +242,7 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
     }
 
     /**
-     * @notice Forwards collect call to NonfungiblePositionManager - can only be called by the NFT owner
+     * @notice Forwards collect call from NonfungiblePositionManager to nft owner - can only be called by the NFT owner
      * @param params INonfungiblePositionManager.CollectParams which are forwarded to the Uniswap V3 NonfungiblePositionManager
      * @return amount0 amount of token0 collected
      * @return amount1 amount of token1 collected
@@ -288,8 +288,8 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
     }
 
     /**
-     * @notice Withdraws token balance for a token owner and withdraws token
-     * @param tokenAddress Address of token to withdraw
+     * @notice Withdraws token balance for an owner (their leftover uniswapv3 fees)
+     * @param token Address of token to withdraw
      * @param to Address to send to
      */
 
@@ -300,6 +300,12 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
         _withdrawBalanceInternalOwner(tokenAddress, to, amount);
     }
 
+    /**
+     * @notice Withdraws token balance for a caller (their fees for compounding)
+     * @param token Address of token to withdraw
+     * @param to Address to send to
+     */
+    
     //for caller only
     function withdrawBalanceCaller(address tokenAddress, address to) external override nonReentrant {
         uint256 amount = callerBalances[msg.sender][tokenAddress];

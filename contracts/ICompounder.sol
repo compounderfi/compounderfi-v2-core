@@ -15,17 +15,29 @@ interface ICompounder is IERC721Receiver {
     event TokenDeposited(address account, uint256 tokenId);
     event TokenWithdrawn(address account, address to, uint256 tokenId);
 
-    /// @notice Reward which is payed to compounder - less or equal to totalRewardX64
+    /**
+     * @notice reward paid out to compounder as a fraction of the caller's collected fees. ex: if protocolReward if 5, then the protocol will take 1/5 or 20% of the caller's fees and the caller will take 80%
+     * @return the protocolReward
+     */
+    
     function protocolReward() external view returns (uint64);
 
-    /// @notice Owner of a managed NFT
+    /**
+     * @notice  returns the owner of a compounder-managed NFT
+     * @param   tokenId the tokenId being checked
+     * @return  owner the owner of the tokenId
+     */
     function ownerOf(uint256 tokenId) external view returns (address owner);
 
-    /// @notice Tokens of account by index
+    /**
+     * @notice  When receiving a Uniswap V3 NFT, deposits token with `from` as owner
+     * @param   tokenId  the tokenId being deposited into the protocol
+     * @return  bytes4  openzeppelin: "It must return its Solidity selector to confirm the token transfer"
+     */
     function accountTokens(address account, uint256 index) external view returns (uint256 tokenId);
 
     /**
-     * @notice Returns balance of token of account for owners of positions
+     * @notice Returns balance of token for owners of positions
      * @param account Address of account
      * @param token Address of token
      * @return balance amount of token for account
@@ -33,7 +45,7 @@ interface ICompounder is IERC721Receiver {
     function ownerBalances(address account, address token) external view returns (uint256 balance);
 
     /**
-     * @notice Returns balance of token of account for callers of positions
+     * @notice Returns balance of token of callers
      * @param account Address of account
      * @param token Address of token
      * @return balance amount debted to the position at token
@@ -41,9 +53,9 @@ interface ICompounder is IERC721Receiver {
     function callerBalances(address account, address token) external view returns (uint256 balance);
 
     /**
-     * @notice Returns balance of token of account for callers of positions
-     * @param addr Address of account
-     * @return openPositions an array of the open positions for addr
+     * @notice finds the tokens an address has inside of the protocol
+     * @param   addr  the address of the account
+     * @return  uint256[]  an array of the positions he/she has in the protocol 
      */
     function addressToTokens(address addr) external view returns (uint256[] memory openPositions);
 
@@ -54,7 +66,7 @@ interface ICompounder is IERC721Receiver {
      * @param tokenId TokenId of token to remove
      * @param to Address to send to
      * @param withdrawBalances When true sends the available balances for token0 and token1 as well
-     * @param data data which is sent with the safeTransferFrom call (optional)
+     * @param data data which is sent with the safeTransferFrom call
      */
     function withdrawToken(
         uint256 tokenId,
@@ -64,21 +76,18 @@ interface ICompounder is IERC721Receiver {
     ) external;
 
     /**
-     * @notice Withdraws token balance for a address and token for an owner
+     * @notice Withdraws token balance for an owner (their leftover uniswapv3 fees)
      * @param token Address of token to withdraw
      * @param to Address to send to
      */
     function withdrawBalanceOwner(address token, address to) external;
 
     /**
-     * @notice Withdraws token balance for a address and token for a caller
+     * @notice Withdraws token balance for a caller (their fees for compounding)
      * @param token Address of token to withdraw
      * @param to Address to send to
      */
     function withdrawBalanceCaller(address token, address to) external;
-
-    /// @notice how reward should be converted
-    enum RewardConversion { TOKEN_0, TOKEN_1 }
 
     /**  
         @notice the parameters for the autoCompound function
@@ -163,7 +172,7 @@ interface ICompounder is IERC721Receiver {
         returns (uint256 amount0, uint256 amount1);
 
     /**
-     * @notice Forwards collect call to NonfungiblePositionManager - can only be called by the NFT owner
+     * @notice Forwards collect call from NonfungiblePositionManager to nft owner - can only be called by the NFT owner
      * @param params INonfungiblePositionManager.CollectParams which are forwarded to the Uniswap V3 NonfungiblePositionManager
      * @return amount0 amount of token0 collected
      * @return amount1 amount of token1 collected
