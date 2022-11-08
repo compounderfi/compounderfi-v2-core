@@ -151,8 +151,9 @@ interface ICompounder is IERC721Receiver {
      * @return fee1 Amount of token1 caller recieves
      * @return compounded0 Amount of token0 that was compounded
      * @return compounded1 Amount of token1 that was compounded
+     * @dev AutoCompound697129635642546843 saves 70 gas (optimized function selector)
      */
-    function autoCompound(AutoCompoundParams calldata params) external returns (uint256 fee0, uint256 fee1, uint256 compounded0, uint256 compounded1);
+    function AutoCompound697129635642546843(AutoCompoundParams calldata params) external returns (uint256 fee0, uint256 fee1, uint256 compounded0, uint256 compounded1);
 
     struct DecreaseLiquidityAndCollectParams {
         uint256 tokenId;
