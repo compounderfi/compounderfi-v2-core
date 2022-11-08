@@ -1,5 +1,4 @@
-
-
+import 'solidity-docgen';
 import { HardhatUserConfig } from "hardhat/config";
 import "dotenv/config";
 
@@ -12,6 +11,7 @@ import "hardhat-gas-reporter";
 
 
 module.exports = {
+  docgen: {},
   mocha: {
     timeout: 100000000
   },
