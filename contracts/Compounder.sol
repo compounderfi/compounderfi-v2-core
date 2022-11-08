@@ -96,8 +96,8 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
     /**
      * @notice Autocompounds for a given NFT (anyone can call this and gets a percentage of the fees)
      * @param params Autocompound specific parameters
-     * @return fees Amount of fees collected by the protocol AND caller
-     * @return tokenAddress Token the fees are in
+     * @return fee0 the total amount of fees0 collected by the caller (should be 0 if params.rewardConversion is false and >0 if true)
+     * @return fee1 the total amount of fees1 collected by the caller (should be 0 if params.rewardConversion is true and >0 if false)
      * @return compounded0 Amount of token0 that was compounded
      * @return compounded1 Amount of token1 that was compounded
      */
