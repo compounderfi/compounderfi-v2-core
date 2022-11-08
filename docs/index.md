@@ -175,7 +175,7 @@ finds the tokens an address has inside of the protocol
 function onERC721Received(address, address, uint256 tokenId, bytes) external returns (bytes4)
 ```
 
-When receiving a Uniswap V3 NFT, deposits token with `from` as owner
+When receiving a Uniswap V3 NFT, deposits token with from as owner
 
 #### Parameters
 
@@ -210,14 +210,14 @@ Autocompounds for a given NFT (anyone can call this and gets a percentage of the
 
 | Name | Type | Description |
 | ---- | ---- | ----------- |
-| params | struct ICompounder.AutoCompoundParams | Autocompound specific parameters |
+| params | struct ICompounder.AutoCompoundParams |  |
 
 #### Return Values
 
 | Name | Type | Description |
 | ---- | ---- | ----------- |
-| fee0 | uint256 | the total amount of fees0 collected by the caller (should be 0 if params.rewardConversion is false and >0 if true) |
-| fee1 | uint256 | the total amount of fees1 collected by the caller (should be 0 if params.rewardConversion is true and >0 if false) |
+| fee0 | uint256 | Amount of token0 caller recieves |
+| fee1 | uint256 | Amount of token1 caller recieves |
 | compounded0 | uint256 | Amount of token0 that was compounded |
 | compounded1 | uint256 | Amount of token1 that was compounded |
 
@@ -613,7 +613,7 @@ Autocompounds for a given NFT (anyone can call this and gets a percentage of the
 
 | Name | Type | Description |
 | ---- | ---- | ----------- |
-| params | struct ICompounder.AutoCompoundParams | Autocompound specific parameters (tokenId, ...) |
+| params | struct ICompounder.AutoCompoundParams |  |
 
 #### Return Values
 

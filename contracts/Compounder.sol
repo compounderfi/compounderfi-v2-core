@@ -92,12 +92,16 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
         return this.onERC721Received.selector;
     }
 
-    event AutoCompound(); //required to get the gas from graphql indexing
+    // @notice required to get the gas from graphql indexing
+    event AutoCompound(); 
+
     /**
      * @notice Autocompounds for a given NFT (anyone can call this and gets a percentage of the fees)
-     * @param params Autocompound specific parameters
-     * @return fee0 the total amount of fees0 collected by the caller (should be 0 if params.rewardConversion is false and >0 if true)
-     * @return fee1 the total amount of fees1 collected by the caller (should be 0 if params.rewardConversion is true and >0 if false)
+     * @param params.tokenId the tokenId being selected to compound
+     * @param params.rewardConversion true - take token0 as the caller fee, false - take token1 as the caller fee
+     * @param params.doSwap true - caller incurs the extra gas cost for 2% rewards of their selected token fee, false - caller spends less gas but gets 1.6% rewards of their specified token
+     * @return fee0 Amount of token0 caller recieves
+     * @return fee1 Amount of token1 caller recieves
      * @return compounded0 Amount of token0 that was compounded
      * @return compounded1 Amount of token1 that was compounded
      */

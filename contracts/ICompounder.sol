@@ -144,7 +144,9 @@ interface ICompounder is IERC721Receiver {
 
     /**
      * @notice Autocompounds for a given NFT (anyone can call this and gets a percentage of the fees)
-     * @param params Autocompound specific parameters (tokenId, ...)
+     * @param params.tokenId the tokenId being selected to compound
+     * @param params.rewardConversion true - take token0 as the caller fee, false - take token1 as the caller fee
+     * @param params.doSwap true - caller incurs the extra gas cost for 2% rewards of their selected token fee, false - caller spends less gas but gets 1.6% rewards of their specified token
      * @return fee0 Amount of token0 caller recieves
      * @return fee1 Amount of token1 caller recieves
      * @return compounded0 Amount of token0 that was compounded
