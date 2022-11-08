@@ -133,12 +133,12 @@ interface ICompounder is IERC721Receiver {
     /**
      * @notice Autocompounds for a given NFT (anyone can call this and gets a percentage of the fees)
      * @param params Autocompound specific parameters (tokenId, ...)
-     * @return fees Amount of token0 caller recieves
-     * @return tokenAddress The token the fee is collected in 
+     * @return fee0 Amount of token0 caller recieves
+     * @return fee1 Amount of token1 caller recieves
      * @return compounded0 Amount of token0 that was compounded
      * @return compounded1 Amount of token1 that was compounded
      */
-    function autoCompound(AutoCompoundParams calldata params) external returns (uint256 fees, address tokenAddress, uint256 compounded0, uint256 compounded1);
+    function autoCompound(AutoCompoundParams calldata params) external returns (uint256 fee0, uint256 fee1, uint256 compounded0, uint256 compounded1);
 
     struct DecreaseLiquidityAndCollectParams {
         uint256 tokenId;

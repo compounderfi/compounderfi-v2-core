@@ -21,7 +21,6 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
 
     using SafeMath for uint256;
 
-    uint128 constant Q64 = 2**64;
     uint128 constant Q96 = 2**96;
     uint256 constant Q192 = 2**192;
 
@@ -72,19 +71,19 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
         return this.onERC721Received.selector;
     }
 
-    event AutoCompound();
+    event AutoCompound(); //required to get the gas from graphql indexing
     /**
      * @notice Autocompounds for a given NFT (anyone can call this and gets a percentage of the fees)
      * @param params Autocompound specific parameters (tokenId, ...)
-     * @return fees Amount of fees collected by the protocol AND caller
-     * @return tokenAddress Token the fees are in
+     * @return fee0 Amount of fees collected by the protocol AND caller
+     * @return fee1 Token the fees are in
      * @return compounded0 Amount of token0 that was compounded
      * @return compounded1 Amount of token1 that was compounded
      */
     function autoCompound(AutoCompoundParams memory params) 
         override 
         external
-        returns (uint256 fees, address tokenAddress, uint256 compounded0, uint256 compounded1) 
+        returns (uint256 fee0, uint256 fee1, uint256 compounded0, uint256 compounded1) 
     {   
         AutoCompoundState memory state;
         state.tokenOwner = ownerOf[params.tokenId];
@@ -122,11 +121,11 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
             //caller chooses fee of their choice - they earn 1/40th when incurring the
             //extra gas cost of swapping but only 1/50th when not swapping
             if (params.rewardConversion) {
-                fees = state.amount0 / 40; 
-                state.amount0 = state.amount0.sub(fees);
+                fee0 = state.amount0 / 40; 
+                state.amount0 = state.amount0.sub(fee0);
             } else {
-                fees = state.amount1 / 40;
-                state.amount1 = state.amount1.sub(fees);
+                fee1 = state.amount1 / 40;
+                state.amount1 = state.amount1.sub(fee1);
             }
             
             SwapParams memory swapParams = SwapParams(
@@ -144,11 +143,11 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
 
         } else {
             if (params.rewardConversion) {
-                fees = state.amount0 / 50;
-                state.amount0 = state.amount0.sub(fees);
+                fee0 = state.amount0 / 50;
+                state.amount0 = state.amount0.sub(fee0);
             } else {
-                fees = state.amount1 / 50;
-                state.amount1 = state.amount1.sub(fees);
+                fee1 = state.amount1 / 50;
+                state.amount1 = state.amount1.sub(fee1);
             }
         }
         //console.log(state.amount0, state.amount1);
@@ -179,12 +178,9 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
         }
 
         if (params.rewardConversion) {
-            tokenAddress = state.token0;
-            _increaseBalanceCaller(msg.sender, state.token0, fees);
-            
+            _increaseBalanceCaller(msg.sender, state.token0, fee0);
         } else {
-            tokenAddress = state.token1;
-            _increaseBalanceCaller(msg.sender, state.token1, fees);
+            _increaseBalanceCaller(msg.sender, state.token1, fee1);
         }
         emit AutoCompound();
     }
@@ -398,11 +394,11 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
         //3. attacker swaps back a greater amount of B for A, benefitting from the reduction in slippage from the liquidity to net a profit
         
         //why it is not an issue:
-        // *the amount of fees in the liquidity position, assuming that it is an automated process, will never reach an amount of liquidity that is profitable for the attacker,
+        // * the amount of fees in the liquidity position, assuming that it is an automated process, will never reach an amount of liquidity that is profitable for the attacker,
         // as it will be compounded efficiently
-        // *there is a significant gas cost to compound many positions
-        // *a larger pool will not have significant slippage
-        // *a smaller pool will not yield significant fees
+        // * there is a significant gas cost to compound many positions
+        // * a larger pool will not have significant slippage
+        // * a smaller pool will not yield significant fees
 
 
 
