@@ -2,10 +2,11 @@
 
 ## Compounder
 
-Owner refers to the owner of the uniswapv3 NFT
-Caller refers to the person who calls the AutoCompound function for the owner, which will automatically reinvest the fees for that position
-Position refers to the uniswap v3 position/NFT
-Protocol refers to compounder.fi, the organization who created this contract
+### Important Preface
+* `Owner` refers to the owner of the uniswapv3 NFT
+* `Caller` refers to the person who calls the AutoCompound function for the owner, will automatically reinvest the fees for that position
+* `Position` refers to the uniswap v3 position/NFT
+* `Protocol` refers to compounder.fi, the organization who created this contract
 
 ### Q96
 

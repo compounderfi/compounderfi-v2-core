@@ -75,7 +75,7 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
 
     
     /**
-     * @notice  When receiving a Uniswap V3 NFT, deposits token with `from` as owner
+     * @notice  When receiving a Uniswap V3 NFT, deposits token with from as owner
      * @param   tokenId  the tokenId being deposited into the protocol
      * @return  bytes4  openzeppelin: "It must return its Solidity selector to confirm the token transfer"
      */
