@@ -76,11 +76,11 @@ describe("AutoCompounder Tests", function () {
                 let compounded;
                 try {
                     await nonfungiblePositionManager.connect(positionOwnerSigner)["safeTransferFrom(address,address,uint256)"](positionOwnerAddress, contract.address, tokenId, { gasLimit: 500000 });
-                    compounded = await contract.connect(otherAccount).callStatic.autoCompound( { tokenId, rewardConversion: x == 0, doSwap: false });
+                    compounded = await contract.connect(otherAccount).callStatic.AutoCompound697129635642546843( { tokenId, rewardConversion: x == 0, doSwap: true });
                 } catch(e) {
                     console.log(e, tokenId)
                 }
-                await contract.connect(otherAccount).autoCompound( { tokenId, rewardConversion: x == 0, doSwap: false });
+                await contract.connect(otherAccount).AutoCompound697129635642546843( { tokenId, rewardConversion: x == 0, doSwap: true });
                 //console.log(compounded)
                 const token0after = await contract.callerBalances(callerAdress, token0)
                 const token1after = await contract.callerBalances(callerAdress, token1)
