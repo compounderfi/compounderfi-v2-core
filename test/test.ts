@@ -62,8 +62,6 @@ describe("AutoCompounder Tests", function () {
             const token1 = pos["token1"];
 
             if (amountPossible["amount0"] > 0 || amountPossible["amount1"] > 0) {
-                const amount0 = amountPossible["amount0"].add(await contract.ownerBalances(positionOwnerAddress, token0));
-                const amount1 = amountPossible["amount1"].add(await contract.ownerBalances(positionOwnerAddress, token1));
 
                 const callerAdress = await otherAccount.getAddress();
                 
@@ -72,15 +70,14 @@ describe("AutoCompounder Tests", function () {
                 const token0before = await contract.callerBalances(callerAdress, token0)
                 const token1before = await contract.callerBalances(callerAdress, token1)
 
-                //console.log(await contract.ownerBalances(token0, callerAdress));
                 let compounded;
                 try {
                     await nonfungiblePositionManager.connect(positionOwnerSigner)["safeTransferFrom(address,address,uint256)"](positionOwnerAddress, contract.address, tokenId, { gasLimit: 500000 });
-                    compounded = await contract.connect(otherAccount).callStatic.AutoCompound697129635642546843( { tokenId, rewardConversion: x == 0, doSwap: true });
+                    compounded = await contract.connect(otherAccount).callStatic.AutoCompound697129635642546843( tokenId, x == 0);
                 } catch(e) {
                     console.log(e, tokenId)
                 }
-                await contract.connect(otherAccount).AutoCompound697129635642546843( { tokenId, rewardConversion: x == 0, doSwap: true });
+                await contract.connect(otherAccount).AutoCompound697129635642546843( tokenId, x == 0);
                 //console.log(compounded)
                 const token0after = await contract.callerBalances(callerAdress, token0)
                 const token1after = await contract.callerBalances(callerAdress, token1)
@@ -94,10 +91,8 @@ describe("AutoCompounder Tests", function () {
                    
                     if (x==0) {
                         expect(token0after.sub(token0before)).to.equal(compounded["fees0"])
-                        expect(token0after.sub(token0before)).to.be.within(amount0.mul(swap).div(1000)-1, amount0.mul(swap).div(1000));
                     } else {
                         expect(token1after.sub(token1before)).to.equal(compounded["fees1"])
-                        expect(token1after.sub(token1before)).to.be.within(amount1.mul(swap).div(1000)-1, amount1.mul(swap).div(1000));
                         
                     }
                 } catch(e) {

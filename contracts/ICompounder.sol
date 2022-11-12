@@ -23,6 +23,13 @@ interface ICompounder is IERC721Receiver {
     function protocolReward() external view returns (uint64);
 
     /**
+     * @notice 
+     * @return the gross reward paid out to the caller. if the fee is 40, then the caller takes 1/40th of tokenA unclaimed fees or of tokenB unclaimed fees  
+     */
+    
+    function grossCallerReward() external view returns (uint64);
+
+    /**
      * @notice  returns the owner of a compounder-managed NFT
      * @param   tokenId the tokenId being checked
      * @return  owner the owner of the tokenId
@@ -36,14 +43,6 @@ interface ICompounder is IERC721Receiver {
      * @return  tokenId the tokenId at that index for that owner
      */
     function accountTokens(address account, uint256 index) external view returns (uint256 tokenId);
-
-    /**
-     * @notice Returns balance of token for owners of positions
-     * @param account Address of account
-     * @param token Address of token
-     * @return balance amount of token for account
-     */
-    function ownerBalances(address account, address token) external view returns (uint256 balance);
 
     /**
      * @notice Returns balance of token of callers
@@ -77,13 +76,6 @@ interface ICompounder is IERC721Receiver {
     ) external;
 
     /**
-     * @notice Withdraws token balance for an owner (their leftover uniswapv3 fees)
-     * @param tokenAddress Address of token to withdraw
-     * @param to Address to send to
-     */
-    function withdrawBalanceOwner(address tokenAddress, address to) external;
-
-    /**
      * @notice Withdraws token balance for a caller (their fees for compounding)
      * @param tokenAddress Address of token to withdraw
      * @param to Address to send to
@@ -103,8 +95,6 @@ interface ICompounder is IERC721Receiver {
         // which token to convert to
         bool rewardConversion;
 
-        // do swap - to add max amount to position (costs more gas)
-        bool doSwap;
     }
 
      struct SwapParams {
@@ -144,16 +134,15 @@ interface ICompounder is IERC721Receiver {
 
     /**
      * @notice Autocompounds for a given NFT (anyone can call this and gets a percentage of the fees)
-     * @param params.tokenId the tokenId being selected to compound
-     * @param params.rewardConversion true - take token0 as the caller fee, false - take token1 as the caller fee
-     * @param params.doSwap true - caller incurs the extra gas cost for 2% rewards of their selected token fee, false - caller spends less gas but gets 1.6% rewards of their specified token
+     * @param tokenId the tokenId being selected to compound
+     * @param rewardConversion true - take token0 as the caller fee, false - take token1 as the caller fee
      * @return fee0 Amount of token0 caller recieves
      * @return fee1 Amount of token1 caller recieves
      * @return compounded0 Amount of token0 that was compounded
      * @return compounded1 Amount of token1 that was compounded
      * @dev AutoCompound697129635642546843 saves 70 gas (optimized function selector)
      */
-    function AutoCompound697129635642546843(AutoCompoundParams calldata params) external returns (uint256 fee0, uint256 fee1, uint256 compounded0, uint256 compounded1);
+    function AutoCompound697129635642546843(uint256 tokenId, bool rewardConversion) external returns (uint256 fee0, uint256 fee1, uint256 compounded0, uint256 compounded1);
 
     struct DecreaseLiquidityAndCollectParams {
         uint256 tokenId;

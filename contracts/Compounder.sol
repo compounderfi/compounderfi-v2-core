@@ -35,8 +35,17 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
     // max positions
     uint32 constant public MAX_POSITIONS_PER_ADDRESS = 100;
 
-    //protocol takes a fifth of what Callers make; callers get 1.6% for no-swap compounds and 2% for swaps
+    /**
+     * @notice reward paid out to compounder as a fraction of the caller's collected fees. ex: if protocolReward if 5, then the protocol will take 1/5 or 20% of the caller's fees and the caller will take 80%
+     * @return the protocolReward
+     */
     uint64 public constant override protocolReward = 5;
+
+    /**
+     * @notice 
+     * @return the gross reward paid out to the caller. if the fee is 40, then the caller takes 1/40th of tokenA unclaimed fees or of tokenB unclaimed fees  
+     */
+    uint64 public constant override grossCallerReward = 40;
 
     // uniswap v3 components
     IUniswapV3Factory private immutable factory;
@@ -46,7 +55,6 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
     mapping(uint256 => address) public override ownerOf; //maps a tokenID to its owner - when sent to this contract to be autocompounded
     mapping(address => uint256[]) public override accountTokens; //maps an address to all of the tokens it owns 
     mapping(address => mapping(address => uint256)) public override callerBalances; //maps a caller's address to each token's address to how much is owed to them by the protocol (rewards from calling the autocompound function)
-    mapping(address => mapping(address => uint256)) public override ownerBalances; //maps a owner's address to each token's address to how much is owed to them by the protocol (excess tokens from the autocompound function are given back to the owner of the position)
 
     constructor(IUniswapV3Factory _factory, INonfungiblePositionManager _nonfungiblePositionManager, ISwapRouter _swapRouter) {
         factory = _factory;
@@ -72,8 +80,6 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
         return accountTokens[addr];
     }
     
-
-    
     /**
      * @notice  When receiving a Uniswap V3 NFT, deposits token with from as owner
      * @param   tokenId  the tokenId being deposited into the protocol
@@ -97,91 +103,63 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
 
     /**
      * @notice Autocompounds for a given NFT (anyone can call this and gets a percentage of the fees)
-     * @param params.tokenId the tokenId being selected to compound
-     * @param params.rewardConversion true - take token0 as the caller fee, false - take token1 as the caller fee
-     * @param params.doSwap true - caller incurs the extra gas cost for 2% rewards of their selected token fee, false - caller spends less gas but gets 1.6% rewards of their specified token
+     * @param tokenId the tokenId being selected to compound
+     * @param rewardConversion true - take token0 as the caller fee, false - take token1 as the caller fee
      * @return fee0 Amount of token0 caller recieves
      * @return fee1 Amount of token1 caller recieves
      * @return compounded0 Amount of token0 that was compounded
      * @return compounded1 Amount of token1 that was compounded
      * @dev AutoCompound697129635642546843 saves 70 gas (optimized function selector)
      */
-    function AutoCompound697129635642546843(AutoCompoundParams memory params) 
-        override 
+    function AutoCompound697129635642546843(uint256 tokenId, bool rewardConversion) 
+        override
         external
         returns (uint256 fee0, uint256 fee1, uint256 compounded0, uint256 compounded1) 
     {   
         AutoCompoundState memory state;
-        state.tokenOwner = ownerOf[params.tokenId];
+        state.tokenOwner = ownerOf[tokenId];
 
         require(state.tokenOwner != address(0), "!found");
 
         // collect fees
         (state.amount0, state.amount1) = nonfungiblePositionManager.collect(
-            INonfungiblePositionManager.CollectParams(params.tokenId, address(this), type(uint128).max, type(uint128).max)
+            INonfungiblePositionManager.CollectParams(tokenId, address(this), type(uint128).max, type(uint128).max)
         );
 
         require(state.amount0 > 0 || state.amount1 > 0);
 
+        (, , state.token0, state.token1, state.fee, state.tickLower, state.tickUpper, , , , , ) = 
+        nonfungiblePositionManager.positions(tokenId);
 
-        if(params.doSwap) { //gas optimization to load less slots when they're not needed
-            (, , state.token0, state.token1, state.fee, state.tickLower, state.tickUpper, , , , , ) = 
-            nonfungiblePositionManager.positions(params.tokenId);
+
+        //caller earns 1/40th of their token of choice
+        if (rewardConversion) {
+            fee0 = state.amount0 / grossCallerReward; 
+            state.amount0 = state.amount0.sub(fee0);
+            _increaseBalanceCaller(msg.sender, state.token0, fee0);
         } else {
-            (, , state.token0, state.token1, , , , , , , , ) = 
-            nonfungiblePositionManager.positions(params.tokenId);
-        }
-    
-        state.excess0 = ownerBalances[state.tokenOwner][state.token0];
-        state.excess1 = ownerBalances[state.tokenOwner][state.token1];
-
-        if (state.excess0 > 0) { //gas optimization - boolean comparision is less expensive than adding
-            state.amount0 = state.amount0.add(state.excess0);
-        }
-        if (state.excess1 > 0) {
-            state.amount1 = state.amount1.add(state.excess1);
+            fee1 = state.amount1 / grossCallerReward;
+            state.amount1 = state.amount1.sub(fee1);
+            _increaseBalanceCaller(msg.sender, state.token1, fee1);
         }
         
-        if (params.doSwap) {
-
-            //caller chooses fee of their choice - they earn 1/40th when incurring the
-            //extra gas cost of swapping but only 1/50th when not swapping
-            if (params.rewardConversion) {
-                fee0 = state.amount0 / 40; 
-                state.amount0 = state.amount0.sub(fee0);
-            } else {
-                fee1 = state.amount1 / 40;
-                state.amount1 = state.amount1.sub(fee1);
-            }
+        SwapParams memory swapParams = SwapParams(
+            state.token0, 
+            state.token1, 
+            state.fee, 
+            state.tickLower, 
+            state.tickUpper, 
+            state.amount0,
+            state.amount1
+        );
+        (state.amount0, state.amount1) = 
+            _swapToPriceRatio(swapParams); //returns amount of 0 and 1 after swapping
             
-            SwapParams memory swapParams = SwapParams(
-                state.token0, 
-                state.token1, 
-                state.fee, 
-                state.tickLower, 
-                state.tickUpper, 
-                state.amount0,
-                state.amount1
-            );
-            (state.amount0, state.amount1) = 
-                _swapToPriceRatio(swapParams); //returns amount of 0 and 1 after swapping
-            
-
-        } else {
-            if (params.rewardConversion) {
-                fee0 = state.amount0 / 50;
-                state.amount0 = state.amount0.sub(fee0);
-            } else {
-                fee1 = state.amount1 / 50;
-                state.amount1 = state.amount1.sub(fee1);
-            }
-        }
-        //console.log(state.amount0, state.amount1);
         // deposit liquidity into tokenId
         if (state.amount0 > 0 || state.amount1 > 0) {
             (, compounded0, compounded1) = nonfungiblePositionManager.increaseLiquidity(
                 INonfungiblePositionManager.IncreaseLiquidityParams(
-                    params.tokenId,
+                    tokenId,
                     state.amount0,
                     state.amount1,
                     0,
@@ -191,23 +169,6 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
             );
         }
 
-        if (params.doSwap) {
-            if (state.excess0 > 0) { //gas optimization
-                ownerBalances[state.tokenOwner][state.token0] = 0; //assume there's none left to save save (there is a negigble amount)
-            }
-            if (state.excess1 > 0) {
-                ownerBalances[state.tokenOwner][state.token1] = 0;
-            }
-        } else {
-            ownerBalances[state.tokenOwner][state.token0] = state.amount0.sub(compounded0); //owner gets the remaining balance
-            ownerBalances[state.tokenOwner][state.token1] = state.amount1.sub(compounded1);
-        }
-
-        if (params.rewardConversion) {
-            _increaseBalanceCaller(msg.sender, state.token0, fee0);
-        } else {
-            _increaseBalanceCaller(msg.sender, state.token1, fee1);
-        }
         emit AutoCompound();
     }
 
@@ -281,28 +242,11 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
             nonfungiblePositionManager.collect(
                 INonfungiblePositionManager.CollectParams(tokenId, to, type(uint128).max, type(uint128).max)
             );
-            
-            (, , address token0, address token1, , , , , , , , ) = nonfungiblePositionManager.positions(tokenId);
-
-            _withdrawFullBalancesInternalOwner(token0, token1, to);
         }
 
         _removeToken(msg.sender, tokenId);
         nonfungiblePositionManager.safeTransferFrom(address(this), to, tokenId, data);
         emit TokenWithdrawn(msg.sender, to, tokenId);
-    }
-
-    /**
-     * @notice Withdraws token balance for an owner (their leftover uniswapv3 fees)
-     * @param tokenAddress Address of token to withdraw
-     * @param to Address to send to
-     */
-
-    //for owner only
-    function withdrawBalanceOwner(address tokenAddress, address to) external override nonReentrant {
-        uint256 amount = ownerBalances[msg.sender][tokenAddress];
-        require(amount > 0, "amount==0");
-        _withdrawBalanceInternalOwner(tokenAddress, to, amount);
     }
 
     /**
@@ -323,24 +267,6 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
         if(amount > 0) {
             callerBalances[account][tokenAddress] = callerBalances[account][tokenAddress].add(amount);
         }
-    }
-
-    //for owner only
-    function _withdrawFullBalancesInternalOwner(address token0, address token1, address to) private {
-        uint256 balance0 = ownerBalances[msg.sender][token0];
-        if (balance0 > 0) {
-            _withdrawBalanceInternalOwner(token0, to, balance0);
-        }
-        uint256 balance1 = ownerBalances[msg.sender][token1];
-        if (balance1 > 0) {
-            _withdrawBalanceInternalOwner(token1, to, balance1);
-        }
-    }
-
-    //for owner only
-    function _withdrawBalanceInternalOwner(address tokenAddress, address to, uint256 amount) private {
-        ownerBalances[msg.sender][tokenAddress] = 0;
-        SafeERC20.safeTransfer(IERC20(tokenAddress), to, amount);
     }
 
     //for caller only
@@ -393,7 +319,6 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
                 break;
             }
         }
-
         assert(assetIndex < len);
 
         uint256[] storage storedList = accountTokens[account];
@@ -431,8 +356,6 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
         // * there is a significant gas cost to compound many positions
         // * a larger pool will not have significant slippage
         // * a smaller pool will not yield significant fees
-
-
 
         // calculate how much of the position needs to be converted to the other token
         if (state.tick >= params.tickUpper) {
