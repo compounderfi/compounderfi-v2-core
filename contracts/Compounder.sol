@@ -35,16 +35,10 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
     // max positions
     uint32 constant public MAX_POSITIONS_PER_ADDRESS = 100;
 
-    /**
-     * @notice reward paid out to compounder as a fraction of the caller's collected fees. ex: if protocolReward if 5, then the protocol will take 1/5 or 20% of the caller's fees and the caller will take 80%
-     * @return the protocolReward
-     */
+    //reward paid out to compounder as a fraction of the caller's collected fees. ex: if protocolReward if 5, then the protocol will take 1/5 or 20% of the caller's fees and the caller will take 80%
     uint64 public constant override protocolReward = 5;
 
-    /**
-     * @notice 
-     * @return the gross reward paid out to the caller. if the fee is 40, then the caller takes 1/40th of tokenA unclaimed fees or of tokenB unclaimed fees  
-     */
+    //the gross reward paid out to the caller. if the fee is 40, then the caller takes 1/40th of tokenA unclaimed fees or of tokenB unclaimed fees  
     uint64 public constant override grossCallerReward = 40;
 
     // uniswap v3 components
@@ -109,9 +103,9 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
      * @return fee1 Amount of token1 caller recieves
      * @return compounded0 Amount of token0 that was compounded
      * @return compounded1 Amount of token1 that was compounded
-     * @dev AutoCompound697129635642546843 saves 70 gas (optimized function selector)
+     * @dev AutoCompound30d33f2265e154c31b7c8ba38ce7da3121b5a13d saves 70 gas (optimized function selector)
      */
-    function AutoCompound697129635642546843(uint256 tokenId, bool rewardConversion) 
+    function AutoCompound30d33f2265e154c31b7c8ba38ce7da3121b5a13d(uint256 tokenId, bool rewardConversion) 
         override
         external
         returns (uint256 fee0, uint256 fee1, uint256 compounded0, uint256 compounded1) 

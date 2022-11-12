@@ -39,6 +39,19 @@ reward paid out to compounder as a fraction of the caller's collected fees. ex: 
 | Name | Type | Description |
 | ---- | ---- | ----------- |
 
+### grossCallerReward
+
+```solidity
+uint64 grossCallerReward
+```
+
+the gross reward paid out to the caller. if the fee is 40, then the caller takes 1/40th of tokenA unclaimed fees or of tokenB unclaimed fees  
+
+#### Return Values
+
+| Name | Type | Description |
+| ---- | ---- | ----------- |
+
 ### factory
 
 ```solidity
@@ -100,24 +113,6 @@ mapping(address => mapping(address => uint256)) callerBalances
 ```
 
 Returns balance of token of callers
-
-#### Parameters
-
-| Name | Type | Description |
-| ---- | ---- | ----------- |
-
-#### Return Values
-
-| Name | Type | Description |
-| ---- | ---- | ----------- |
-
-### ownerBalances
-
-```solidity
-mapping(address => mapping(address => uint256)) ownerBalances
-```
-
-Returns balance of token for owners of positions
 
 #### Parameters
 
@@ -198,19 +193,22 @@ When receiving a Uniswap V3 NFT, deposits token with from as owner
 event AutoCompound()
 ```
 
-### autoCompound
+### AutoCompound30d33f2265e154c31b7c8ba38ce7da3121b5a13d
 
 ```solidity
-function autoCompound(struct ICompounder.AutoCompoundParams params) external returns (uint256 fee0, uint256 fee1, uint256 compounded0, uint256 compounded1)
+function AutoCompound30d33f2265e154c31b7c8ba38ce7da3121b5a13d(uint256 tokenId, bool rewardConversion) external returns (uint256 fee0, uint256 fee1, uint256 compounded0, uint256 compounded1)
 ```
 
 Autocompounds for a given NFT (anyone can call this and gets a percentage of the fees)
+
+_AutoCompound30d33f2265e154c31b7c8ba38ce7da3121b5a13d saves 70 gas (optimized function selector)_
 
 #### Parameters
 
 | Name | Type | Description |
 | ---- | ---- | ----------- |
-| params | struct ICompounder.AutoCompoundParams |  |
+| tokenId | uint256 | the tokenId being selected to compound |
+| rewardConversion | bool | true - take token0 as the caller fee, false - take token1 as the caller fee |
 
 #### Return Values
 
@@ -282,21 +280,6 @@ Removes a NFT from the protocol and safe transfers it to address to
 | withdrawBalances | bool | When true sends the available balances for token0 and token1 as well |
 | data | bytes | data which is sent with the safeTransferFrom call |
 
-### withdrawBalanceOwner
-
-```solidity
-function withdrawBalanceOwner(address tokenAddress, address to) external
-```
-
-Withdraws token balance for an owner (their leftover uniswapv3 fees)
-
-#### Parameters
-
-| Name | Type | Description |
-| ---- | ---- | ----------- |
-| tokenAddress | address | Address of token to withdraw |
-| to | address | Address to send to |
-
 ### withdrawBalanceCaller
 
 ```solidity
@@ -316,18 +299,6 @@ Withdraws token balance for a caller (their fees for compounding)
 
 ```solidity
 function _increaseBalanceCaller(address account, address tokenAddress, uint256 amount) private
-```
-
-### _withdrawFullBalancesInternalOwner
-
-```solidity
-function _withdrawFullBalancesInternalOwner(address token0, address token1, address to) private
-```
-
-### _withdrawBalanceInternalOwner
-
-```solidity
-function _withdrawBalanceInternalOwner(address tokenAddress, address to, uint256 amount) private
 ```
 
 ### _withdrawBalanceInternalCaller
@@ -394,6 +365,18 @@ reward paid out to compounder as a fraction of the caller's collected fees. ex: 
 | ---- | ---- | ----------- |
 | [0] | uint64 | the protocolReward |
 
+### grossCallerReward
+
+```solidity
+function grossCallerReward() external view returns (uint64)
+```
+
+#### Return Values
+
+| Name | Type | Description |
+| ---- | ---- | ----------- |
+| [0] | uint64 | the gross reward paid out to the caller. if the fee is 40, then the caller takes 1/40th of tokenA unclaimed fees or of tokenB unclaimed fees |
+
 ### ownerOf
 
 ```solidity
@@ -434,27 +417,6 @@ Tokens of owner by index
 | Name | Type | Description |
 | ---- | ---- | ----------- |
 | tokenId | uint256 | the tokenId at that index for that owner |
-
-### ownerBalances
-
-```solidity
-function ownerBalances(address account, address token) external view returns (uint256 balance)
-```
-
-Returns balance of token for owners of positions
-
-#### Parameters
-
-| Name | Type | Description |
-| ---- | ---- | ----------- |
-| account | address | Address of account |
-| token | address | Address of token |
-
-#### Return Values
-
-| Name | Type | Description |
-| ---- | ---- | ----------- |
-| balance | uint256 | amount of token for account |
 
 ### callerBalances
 
@@ -514,21 +476,6 @@ Removes a NFT from the protocol and safe transfers it to address to
 | withdrawBalances | bool | When true sends the available balances for token0 and token1 as well |
 | data | bytes | data which is sent with the safeTransferFrom call |
 
-### withdrawBalanceOwner
-
-```solidity
-function withdrawBalanceOwner(address tokenAddress, address to) external
-```
-
-Withdraws token balance for an owner (their leftover uniswapv3 fees)
-
-#### Parameters
-
-| Name | Type | Description |
-| ---- | ---- | ----------- |
-| tokenAddress | address | Address of token to withdraw |
-| to | address | Address to send to |
-
 ### withdrawBalanceCaller
 
 ```solidity
@@ -550,7 +497,6 @@ Withdraws token balance for a caller (their fees for compounding)
 struct AutoCompoundParams {
   uint256 tokenId;
   bool rewardConversion;
-  bool doSwap;
 }
 ```
 
@@ -601,19 +547,22 @@ struct SwapState {
 }
 ```
 
-### autoCompound
+### AutoCompound30d33f2265e154c31b7c8ba38ce7da3121b5a13d
 
 ```solidity
-function autoCompound(struct ICompounder.AutoCompoundParams params) external returns (uint256 fee0, uint256 fee1, uint256 compounded0, uint256 compounded1)
+function AutoCompound30d33f2265e154c31b7c8ba38ce7da3121b5a13d(uint256 tokenId, bool rewardConversion) external returns (uint256 fee0, uint256 fee1, uint256 compounded0, uint256 compounded1)
 ```
 
 Autocompounds for a given NFT (anyone can call this and gets a percentage of the fees)
+
+_AutoCompound30d33f2265e154c31b7c8ba38ce7da3121b5a13d saves 70 gas (optimized function selector)_
 
 #### Parameters
 
 | Name | Type | Description |
 | ---- | ---- | ----------- |
-| params | struct ICompounder.AutoCompoundParams |  |
+| tokenId | uint256 | the tokenId being selected to compound |
+| rewardConversion | bool | true - take token0 as the caller fee, false - take token1 as the caller fee |
 
 #### Return Values
 

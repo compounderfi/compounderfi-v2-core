@@ -8,7 +8,7 @@ const nativeTokenAddresses = {
   "optimism" : "0x4200000000000000000000000000000000000006",
   "arbitrum" : "0x82af49447d8a07e3bd95bd0d56f35241523fbab1"
 }
-
+//["0x1F98431c8aD98523631AE4a59f267346ea31F984", "0xC36442b4a4522E871399CD717aBDD847Ab11FE88", "0xE592427A0AEce92De3Edee1F18E0157C05861564"]
 const factoryAddress = "0x1F98431c8aD98523631AE4a59f267346ea31F984"
 const nonfungiblePositionManagerAddress = "0xC36442b4a4522E871399CD717aBDD847Ab11FE88"
 const swapRouterAddress = "0xE592427A0AEce92De3Edee1F18E0157C05861564"
@@ -16,7 +16,7 @@ const swapRouterAddress = "0xE592427A0AEce92De3Edee1F18E0157C05861564"
 async function main() {
   //console.log(process.env.DEPLOYMENT_PRIVATE_KEY, hre.ethers.provider)
   const signer = new hre.ethers.Wallet(process.env.DEPLOYMENT_PRIVATE_KEY, hre.ethers.provider)
-
+image.png
   console.log("Deploying on", hre.network.name)
 
   const Contract = await hre.ethers.getContractFactory("Compounder", signer);
