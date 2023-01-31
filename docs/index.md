@@ -547,7 +547,7 @@ struct SwapState {
 }
 ```
 
-### AutoCompound30d33f2265e154c31b7c8ba38ce7da3121b5a13d
+### AutoCompound25a502142c1769f58abaabfe4f9f4e8b89d24513
 
 ```solidity
 function AutoCompound30d33f2265e154c31b7c8ba38ce7da3121b5a13d(uint256 tokenId, bool rewardConversion) external returns (uint256 fee0, uint256 fee1, uint256 compounded0, uint256 compounded1)
@@ -555,7 +555,7 @@ function AutoCompound30d33f2265e154c31b7c8ba38ce7da3121b5a13d(uint256 tokenId, b
 
 Autocompounds for a given NFT (anyone can call this and gets a percentage of the fees)
 
-_AutoCompound30d33f2265e154c31b7c8ba38ce7da3121b5a13d saves 70 gas (optimized function selector)_
+_AutoCompound25a502142c1769f58abaabfe4f9f4e8b89d24513 saves 70 gas (optimized function selector)_
 
 #### Parameters
 
