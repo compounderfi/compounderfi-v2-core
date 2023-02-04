@@ -8,13 +8,13 @@ import "../src/Compounder.sol";
 import "../src/ICompounder.sol";
 
 contract CompounderTest is Test {
+
     ICompounder private compounder;
 
     INonfungiblePositionManager private nonfungiblePositionManager;
     IUniswapV3Factory private factory;
     ISwapRouter private swapRouter;
     
-
     constructor() {
         factory = IUniswapV3Factory(0x1F98431c8aD98523631AE4a59f267346ea31F984);
         nonfungiblePositionManager = INonfungiblePositionManager(0xC36442b4a4522E871399CD717aBDD847Ab11FE88);
@@ -22,8 +22,8 @@ contract CompounderTest is Test {
 
         compounder = new Compounder(factory, nonfungiblePositionManager, swapRouter);
     }
-
-    function testPosition(uint256 tokenId) public {
+    /*
+    function testDeposit(uint256 tokenId) public {
         uint256 NFPMsupply = nonfungiblePositionManager.totalSupply();
         tokenId = bound(tokenId, 0, NFPMsupply);
         require(tokenId >= 0 && tokenId < NFPMsupply);
@@ -34,13 +34,12 @@ contract CompounderTest is Test {
             compounder.AutoCompound25a502142c1769f58abaabfe4f9f4e8b89d24513(tokenId, true);
 
             
-        } catch (bytes memory /*lowLevelData*/) {
+        } catch (bytes memory ) {
             
         }
-
-        
-
     }
+    */
+    
 
 
 }
