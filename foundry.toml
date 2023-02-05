@@ -3,9 +3,6 @@ src = 'src'
 out = 'artifacts'
 libs = ["node_modules", "lib"]
 solc = "0.7.6"
-
-[fuzz]
-
-FOUNDRY_FUZZ_RUNS = 10
+fuzz_runs = 2
 
 # See more config options https://github.com/foundry-rs/foundry/tree/master/config

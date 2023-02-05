@@ -34,14 +34,14 @@ contract CompounderTest is Test {
             .checked_write(amt);
     }
 
-    function _swap(address tokenIn, address tokenOut, uint24 fee, uint256 amount) private returns (uint256 amountOut) {
+    function _swap(address tokenIn, address tokenOut, uint24 fee, uint256 amount, address to) private returns (uint256 amountOut) {
         if (amount > 0) {
             ISwapRouter.ExactInputSingleParams memory params = ISwapRouter
             .ExactInputSingleParams({
                 tokenIn: tokenIn,
                 tokenOut: tokenOut,
                 fee: fee,
-                recipient: address(0),
+                recipient: to,
                 deadline: block.timestamp,
                 amountIn: amount,
                 amountOutMinimum: 0,
@@ -55,25 +55,24 @@ contract CompounderTest is Test {
         // approve tokens once if not yet approved
         uint256 allowance0 = token0.allowance(address(this), address(nonfungiblePositionManager));
         if (allowance0 == 0) {
-            SafeERC20.safeApprove(token0, address(nonfungiblePositionManager), type(uint256).max);
             SafeERC20.safeApprove(token0, address(swapRouter), type(uint256).max);
         }
         uint256 allowance1 = token1.allowance(address(this), address(nonfungiblePositionManager));
         if (allowance1 == 0) {
-            SafeERC20.safeApprove(token1, address(nonfungiblePositionManager), type(uint256).max);
             SafeERC20.safeApprove(token1, address(swapRouter), type(uint256).max);
         }
     }
 
-    function testPosition(uint256 tokenId) public {
+    function testPosition() public {
 
-        //uint256 tokenId = 5;
+        uint256 tokenId = 2;
         uint256 NFPMsupply = nonfungiblePositionManager.totalSupply();
         tokenId = bound(tokenId, 0, NFPMsupply);
         require(tokenId >= 0 && tokenId < NFPMsupply);
 
         try nonfungiblePositionManager.ownerOf(tokenId) returns (address owner) {
             startHoax(owner);
+            console.log(owner);
             nonfungiblePositionManager.approve(address(compounder), tokenId);
             nonfungiblePositionManager.safeTransferFrom(owner, address(compounder), tokenId);
             (, , address token0, address token1, uint24 fee, , , , , , , ) = nonfungiblePositionManager.positions(tokenId);
@@ -86,11 +85,11 @@ contract CompounderTest is Test {
 
             //do a swap to ensure no revert from compounder
             _swap(
-                token0, token1, fee, 1000
+                token0, token1, fee, 1000, owner
             );
 
             _swap(
-                token1, token0, fee, 1000
+                token1, token0, fee, 1000, owner
             );
 
             compounder.AutoCompound25a502142c1769f58abaabfe4f9f4e8b89d24513(tokenId, true);
