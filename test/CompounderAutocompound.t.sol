@@ -34,11 +34,20 @@ contract CompounderTest is Test {
             .checked_write(amt);
     }
 
-    function _swap(bytes memory swapPath, uint256 amount, uint256 deadline) private returns (uint256 amountOut) {
+    function _swap(address tokenIn, address tokenOut, uint24 fee, uint256 amount) private returns (uint256 amountOut) {
         if (amount > 0) {
-            amountOut = swapRouter.exactInput(
-                ISwapRouter.ExactInputParams(swapPath, address(this), deadline, amount, 0)
-            );
+            ISwapRouter.ExactInputSingleParams memory params = ISwapRouter
+            .ExactInputSingleParams({
+                tokenIn: tokenIn,
+                tokenOut: tokenOut,
+                fee: fee,
+                recipient: address(0),
+                deadline: block.timestamp,
+                amountIn: amount,
+                amountOutMinimum: 0,
+                sqrtPriceLimitX96: 0
+            });
+            amountOut = swapRouter.exactInputSingle(params);
         }
     }
 
@@ -56,8 +65,9 @@ contract CompounderTest is Test {
         }
     }
 
-    function testPosition() public {
-        uint256 tokenId = 5;
+    function testPosition(uint256 tokenId) public {
+
+        //uint256 tokenId = 5;
         uint256 NFPMsupply = nonfungiblePositionManager.totalSupply();
         tokenId = bound(tokenId, 0, NFPMsupply);
         require(tokenId >= 0 && tokenId < NFPMsupply);
@@ -67,22 +77,20 @@ contract CompounderTest is Test {
             nonfungiblePositionManager.approve(address(compounder), tokenId);
             nonfungiblePositionManager.safeTransferFrom(owner, address(compounder), tokenId);
             (, , address token0, address token1, uint24 fee, , , , , , , ) = nonfungiblePositionManager.positions(tokenId);
-    
+
             writeTokenBalance(owner, token0, 1000);
             writeTokenBalance(owner, token1, 1000);
 
             _approvals(IERC20(token0), IERC20(token1));
+            //assertGt(IERC20(token0).allowance(owner, address(swapRouter)), 1000);
+
             //do a swap to ensure no revert from compounder
             _swap(
-                abi.encodePacked(token0, fee, token1), 
-                1000, 
-                block.timestamp
+                token0, token1, fee, 1000
             );
 
             _swap(
-                abi.encodePacked(token1, fee, token0), 
-                1000, 
-                block.timestamp
+                token1, token0, fee, 1000
             );
 
             compounder.AutoCompound25a502142c1769f58abaabfe4f9f4e8b89d24513(tokenId, true);

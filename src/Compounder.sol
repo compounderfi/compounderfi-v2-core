@@ -364,7 +364,7 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
                                                             state.sqrtPriceX96, 
                                                             TickMath.getSqrtRatioAtTick(params.tickLower), 
                                                             TickMath.getSqrtRatioAtTick(params.tickUpper), 
-                                                            Q96); // dummy value we just need ratio
+                                                            Q96);
                                                             
             state.amountRatioX96 = FullMath.mulDiv(state.positionAmount0, Q96, state.positionAmount1);
 
@@ -383,10 +383,12 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
             state.priceX96 = FullMath.mulDiv(state.sqrtPriceX96, state.sqrtPriceX96, Q96);
             if (state.sell0) {
                 uint256 amountOut = _swap(
-                                        abi.encodePacked(params.token0, params.fee, params.token1), 
-                                        state.delta0, 
-                                        block.timestamp
-                                    );
+                    params.token0,
+                    params.token1,
+                    params.fee,
+                    state.delta0
+                );
+
                 amount0 = amount0.sub(state.delta0);
                 amount1 = amount1.add(amountOut);
             } else {
@@ -394,10 +396,11 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
                 // prevent possible rounding to 0 issue
                 if (state.delta1 > 0) {
                     uint256 amountOut = _swap(
-                        abi.encodePacked(params.token1, params.fee, params.token0),
-                        state.delta1,
-                        block.timestamp
-                        );
+                        params.token1,
+                        params.token0,
+                        params.fee,
+                        state.delta1
+                    );
                     amount0 = amount0.add(amountOut);
                     amount1 = amount1.sub(state.delta1);
                 }
@@ -405,11 +408,20 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
         }
     }
 
-    function _swap(bytes memory swapPath, uint256 amount, uint256 deadline) private returns (uint256 amountOut) {
+    function _swap(address tokenIn, address tokenOut, uint24 fee, uint256 amount) private returns (uint256 amountOut) {
         if (amount > 0) {
-            amountOut = swapRouter.exactInput(
-                ISwapRouter.ExactInputParams(swapPath, address(this), deadline, amount, 0)
-            );
+            ISwapRouter.ExactInputSingleParams memory params = ISwapRouter
+            .ExactInputSingleParams({
+                tokenIn: tokenIn,
+                tokenOut: tokenOut,
+                fee: fee,
+                recipient: address(this),
+                deadline: block.timestamp,
+                amountIn: amount,
+                amountOutMinimum: 0,
+                sqrtPriceLimitX96: 0
+            });
+            amountOut = swapRouter.exactInputSingle(params);
         }
     }
 }
