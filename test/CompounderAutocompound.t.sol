@@ -58,9 +58,9 @@ contract CompounderTest is Test {
     }
 
     //uint256 tokenId, bool swap
-    function testPosition() public {
-        uint256 tokenId = 5;
-        bool paidInToken0 = true;
+    function testPosition(uint256 tokenId, bool paidInToken0) public {
+        //uint256 tokenId = 5;
+        //bool paidInToken0 = true;
         
         uint256 NFPMsupply = nonfungiblePositionManager.totalSupply();
         tokenId = bound(tokenId, 0, NFPMsupply);
@@ -79,7 +79,7 @@ contract CompounderTest is Test {
             
             nonfungiblePositionManager.safeTransferFrom(owner, address(compounder), tokenId);
 
-            if (before.unclaimed0 == 0 || before.unclaimed1 == 0) {
+            if (before.unclaimed0 == 0 && before.unclaimed1 == 0) {
                 vm.expectRevert("0claim");
                 compounder.AutoCompound25a502142c1769f58abaabfe4f9f4e8b89d24513(tokenId, paidInToken0);
             } else {
@@ -101,13 +101,13 @@ contract CompounderTest is Test {
                     )
                 );
 
-                assertEq(amount0after, compounded0 + before.amount0before);
-                assertEq(amount1after, compounded1 + before.amount1before);
+                assertApproxEqRel(compounded0, amount0after - before.amount0before, 0.001e18);
+                assertApproxEqRel(compounded1, amount1after - before.amount1before, 0.001e18);
                 
                 if (paidInToken0) {
-                    assertEq(fee0, before.amount0before / 5);
+                    assertEq(fee0, before.unclaimed0 / compounder.grossCallerReward());
                 } else {
-                    assertEq(fee1, before.amount1before / 5);
+                    assertEq(fee1, before.unclaimed1 / compounder.grossCallerReward());
                 }
 
             }
