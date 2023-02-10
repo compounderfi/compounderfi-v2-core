@@ -9,8 +9,10 @@ import "../src/external/uniswap/v3-periphery/interfaces/ISwapRouter.sol";
 import "../src/Compounder.sol";
 import "../src/ICompounder.sol";
 
+
 contract CompounderTest is Test {
     using stdStorage for StdStorage;
+    
     ICompounder private compounder;
 
     INonfungiblePositionManager private nonfungiblePositionManager;
@@ -26,73 +28,90 @@ contract CompounderTest is Test {
         compounder = new Compounder(factory, nonfungiblePositionManager, swapRouter);
     }
 
-    function writeTokenBalance(address who, address token, uint256 amt) internal {
-        stdstore
-            .target(token)
-            .sig(IERC20(token).balanceOf.selector)
-            .with_key(who)
-            .checked_write(amt);
+    function takeBeforeMeasurements(uint256 tokenId) private returns(uint256 unclaimed0, uint256 unclaimed1, uint256 amount0before, uint256 amount1before) {
+        uint256 snapshot = vm.snapshot();
+
+        (unclaimed0, unclaimed1) = nonfungiblePositionManager.collect(
+        INonfungiblePositionManager.CollectParams(tokenId, address(this), type(uint128).max, type(uint128).max)
+        );
+
+        (, , , , , , , uint128 liquiditybefore, , , , ) = nonfungiblePositionManager.positions(tokenId);
+
+        (amount0before, amount1before) = nonfungiblePositionManager.decreaseLiquidity(
+        INonfungiblePositionManager.DecreaseLiquidityParams(
+            tokenId, 
+            liquiditybefore, 
+            0, 
+            0,
+            block.timestamp
+        )
+        );
+
+        vm.revertTo(snapshot);
     }
 
-    function _swap(address tokenIn, address tokenOut, uint24 fee, uint256 amount, address to) private returns (uint256 amountOut) {
-        if (amount > 0) {
-            ISwapRouter.ExactInputSingleParams memory params = ISwapRouter
-            .ExactInputSingleParams({
-                tokenIn: tokenIn,
-                tokenOut: tokenOut,
-                fee: fee,
-                recipient: to,
-                deadline: block.timestamp,
-                amountIn: amount,
-                amountOutMinimum: 0,
-                sqrtPriceLimitX96: 0
-            });
-            amountOut = swapRouter.exactInputSingle(params);
-        }
+    struct MeasurementsBefore {
+        uint256 unclaimed0;
+        uint256 unclaimed1;
+        uint256 amount0before;
+        uint256 amount1before;
     }
 
-    function _approvals(IERC20 token0, IERC20 token1) private {
-        // approve tokens once if not yet approved
-        uint256 allowance0 = token0.allowance(address(this), address(nonfungiblePositionManager));
-        if (allowance0 == 0) {
-            SafeERC20.safeApprove(token0, address(swapRouter), type(uint256).max);
-        }
-        uint256 allowance1 = token1.allowance(address(this), address(nonfungiblePositionManager));
-        if (allowance1 == 0) {
-            SafeERC20.safeApprove(token1, address(swapRouter), type(uint256).max);
-        }
-    }
-
+    //uint256 tokenId, bool swap
     function testPosition() public {
-
-        uint256 tokenId = 2;
+        uint256 tokenId = 5;
+        bool paidInToken0 = true;
+        
         uint256 NFPMsupply = nonfungiblePositionManager.totalSupply();
         tokenId = bound(tokenId, 0, NFPMsupply);
         require(tokenId >= 0 && tokenId < NFPMsupply);
+        
+        
 
         try nonfungiblePositionManager.ownerOf(tokenId) returns (address owner) {
             startHoax(owner);
-            console.log(owner);
+
+            MeasurementsBefore memory before;
+            (before.unclaimed0, before.unclaimed1, before.amount0before, before.amount1before) 
+            = takeBeforeMeasurements(tokenId);
+
             nonfungiblePositionManager.approve(address(compounder), tokenId);
+            
             nonfungiblePositionManager.safeTransferFrom(owner, address(compounder), tokenId);
-            (, , address token0, address token1, uint24 fee, , , , , , , ) = nonfungiblePositionManager.positions(tokenId);
 
-            writeTokenBalance(owner, token0, 1000);
-            writeTokenBalance(owner, token1, 1000);
+            if (before.unclaimed0 == 0 || before.unclaimed1 == 0) {
+                vm.expectRevert("0claim");
+                compounder.AutoCompound25a502142c1769f58abaabfe4f9f4e8b89d24513(tokenId, paidInToken0);
+            } else {
+                vm.stopPrank(); //call from EOA
 
-            _approvals(IERC20(token0), IERC20(token1));
-            //assertGt(IERC20(token0).allowance(owner, address(swapRouter)), 1000);
+                (uint256 fee0, uint256 fee1, uint256 compounded0, uint256 compounded1) = compounder.AutoCompound25a502142c1769f58abaabfe4f9f4e8b89d24513(tokenId, paidInToken0);
 
-            //do a swap to ensure no revert from compounder
-            _swap(
-                token0, token1, fee, 1000, owner
-            );
+                (, , , , , , , uint128 liquidityafter, , , , ) = nonfungiblePositionManager.positions(tokenId);
 
-            _swap(
-                token1, token0, fee, 1000, owner
-            );
+                vm.prank(address(compounder));
 
-            compounder.AutoCompound25a502142c1769f58abaabfe4f9f4e8b89d24513(tokenId, true);
+                (uint256 amount0after, uint256 amount1after) = nonfungiblePositionManager.decreaseLiquidity(
+                    INonfungiblePositionManager.DecreaseLiquidityParams(
+                        tokenId, 
+                        liquidityafter, 
+                        0, 
+                        0,
+                        block.timestamp
+                    )
+                );
+
+                assertEq(amount0after, compounded0 + before.amount0before);
+                assertEq(amount1after, compounded1 + before.amount1before);
+                
+                if (paidInToken0) {
+                    assertEq(fee0, before.amount0before / 5);
+                } else {
+                    assertEq(fee1, before.amount1before / 5);
+                }
+
+            }
+        
 
             
         } catch (bytes memory /*lowLevelData*/) {
