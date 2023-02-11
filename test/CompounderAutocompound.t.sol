@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma abicoder v2;
-pragma solidity ^0.7.6;
+pragma solidity =0.7.6;
 
 import "forge-std/Test.sol";
 import "forge-std/console.sol";
