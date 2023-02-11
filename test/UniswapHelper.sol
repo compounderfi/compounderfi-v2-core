@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
-
 pragma solidity =0.7.6;
+
+import "../src/Compounder.sol";
 
 contract UniswapHelper {
    
@@ -9,7 +10,7 @@ contract UniswapHelper {
     /// @return liquidity The amount of liquidity for the position
     /// @return amount0 The amount of token0
     /// @return amount1 The amount of token1
-    function mintNewPosition()
+    function mintNewPosition(token0, token1)
         external
         returns (
             uint256 tokenId,
@@ -24,7 +25,7 @@ contract UniswapHelper {
         uint256 amount1ToMint = 1000;
 
         // Approve the position manager
-        TransferHelper.safeApprove(DAI, address(nonfungiblePositionManager), amount0ToMint);
+        IERC20((DAI, address(nonfungiblePositionManager), amount0ToMint);
         TransferHelper.safeApprove(USDC, address(nonfungiblePositionManager), amount1ToMint);
 
         INonfungiblePositionManager.MintParams memory params =
