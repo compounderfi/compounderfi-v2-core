@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity =0.7.6;
 
-import "../src/Compounder.sol";
-import "openzeppelin/ERC20.sol";
+//import "../src/Compounder.sol";
+import "openzeppelin/token/ERC20/ERC20.sol";
+
 contract UniswapHelper {
    
     /// @notice Calls the mint function defined in periphery, mints the same amount of each token. For this example we are providing 1000 DAI and 1000 USDC in liquidity
@@ -10,7 +11,7 @@ contract UniswapHelper {
     /// @return liquidity The amount of liquidity for the position
     /// @return amount0 The amount of token0
     /// @return amount1 The amount of token1
-    function mintNewPosition()
+    function mintNewPosition(address nonfungiblePositionManager)
         external
         returns (
             uint256 tokenId,
@@ -32,9 +33,9 @@ contract UniswapHelper {
 
         INonfungiblePositionManager.MintParams memory params =
             INonfungiblePositionManager.MintParams({
-                token0: DAI,
-                token1: USDC,
-                fee: poolFee,
+                token0: address(token0),
+                token1: address(token1),
+                fee: 3000,
                 tickLower: TickMath.MIN_TICK,
                 tickUpper: TickMath.MAX_TICK,
                 amount0Desired: amount0ToMint,
@@ -47,21 +48,5 @@ contract UniswapHelper {
 
         // Note that the pool defined by DAI/USDC and fee tier 0.3% must already be created and initialized in order to mint
         (tokenId, liquidity, amount0, amount1) = nonfungiblePositionManager.mint(params);
-
-        // Create a deposit
-        _createDeposit(msg.sender, tokenId);
-
-        // Remove allowance and refund in both assets.
-        if (amount0 < amount0ToMint) {
-            TransferHelper.safeApprove(DAI, address(nonfungiblePositionManager), 0);
-            uint256 refund0 = amount0ToMint - amount0;
-            TransferHelper.safeTransfer(DAI, msg.sender, refund0);
-        }
-
-        if (amount1 < amount1ToMint) {
-            TransferHelper.safeApprove(USDC, address(nonfungiblePositionManager), 0);
-            uint256 refund1 = amount1ToMint - amount1;
-            TransferHelper.safeTransfer(USDC, msg.sender, refund1);
-        }
     }
 }
