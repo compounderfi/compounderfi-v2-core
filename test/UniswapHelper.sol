@@ -2,7 +2,7 @@
 pragma solidity =0.7.6;
 
 import "../src/Compounder.sol";
-
+import "openzeppelin/ERC20.sol";
 contract UniswapHelper {
    
     /// @notice Calls the mint function defined in periphery, mints the same amount of each token. For this example we are providing 1000 DAI and 1000 USDC in liquidity
@@ -10,7 +10,7 @@ contract UniswapHelper {
     /// @return liquidity The amount of liquidity for the position
     /// @return amount0 The amount of token0
     /// @return amount1 The amount of token1
-    function mintNewPosition(token0, token1)
+    function mintNewPosition()
         external
         returns (
             uint256 tokenId,
@@ -19,14 +19,16 @@ contract UniswapHelper {
             uint256 amount1
         )
     {
+        ERC20 token0 = new ERC20("test", "test");
+        ERC20 token1 = new ERC20("test", "test");
         // For this example, we will provide equal amounts of liquidity in both assets.
         // Providing liquidity in both assets means liquidity will be earning fees and is considered in-range.
         uint256 amount0ToMint = 1000;
         uint256 amount1ToMint = 1000;
 
         // Approve the position manager
-        IERC20((DAI, address(nonfungiblePositionManager), amount0ToMint);
-        TransferHelper.safeApprove(USDC, address(nonfungiblePositionManager), amount1ToMint);
+        token0.approve(address(nonfungiblePositionManager), amount0ToMint);
+        token1.approve(address(nonfungiblePositionManager), amount0ToMint);
 
         INonfungiblePositionManager.MintParams memory params =
             INonfungiblePositionManager.MintParams({

@@ -81,14 +81,20 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
      */
     function onERC721Received(
         address,
-        address,
+        address from,
         uint256 tokenId,
-        bytes calldata
+        bytes calldata data //regular users will leave data blank, but contracts will put anything in it
     ) external override nonReentrant returns (bytes4) {
+    
         require(msg.sender == address(nonfungiblePositionManager), "!univ3 pos");
-
-        _addToken(tokenId, tx.origin); //use tx.origin to support multicall sending of multiple positions in one txn
-        emit TokenDeposited(tx.origin, tokenId);
+        if (data.length == 0) {
+            _addToken(tokenId, tx.origin); //use tx.origin to support multicall sending of multiple positions in one txn
+            emit TokenDeposited(tx.origin, tokenId);
+        } else {
+            _addToken(tokenId, from); //single deposit for contracts
+            emit TokenDeposited(from, tokenId);
+        }
+        
         return this.onERC721Received.selector;
     }
 
