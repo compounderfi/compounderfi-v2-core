@@ -3,6 +3,7 @@ pragma solidity =0.7.6;
 
 //import "../src/Compounder.sol";
 import "openzeppelin/token/ERC20/ERC20.sol";
+import "uniswap-v3-periphery/base/PoolInitializer.sol";
 
 contract UniswapHelper {
    
@@ -22,6 +23,13 @@ contract UniswapHelper {
     {
         ERC20 token0 = new ERC20("test", "test");
         ERC20 token1 = new ERC20("test", "test");
+        token0._mint(address(this), 5000);
+        token1._mint(address(this), 5000);
+        
+        PoolInitializer initalizer = new PoolInitializer();
+
+        initalizer.createAndInitializePoolIfNecessary(token0, token1, 3000, 1000);
+
         // For this example, we will provide equal amounts of liquidity in both assets.
         // Providing liquidity in both assets means liquidity will be earning fees and is considered in-range.
         uint256 amount0ToMint = 1000;
