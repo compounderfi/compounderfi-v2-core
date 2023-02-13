@@ -259,6 +259,8 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
 
     //for caller only
     function _increaseBalanceCaller(address account, address tokenAddress, uint256 amount) private {
+        console.log( account,  tokenAddress, amount);
+        
         if(amount > 0) {
             callerBalances[account][tokenAddress] = callerBalances[account][tokenAddress].add(amount);
         }
