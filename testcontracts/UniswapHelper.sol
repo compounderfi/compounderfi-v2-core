@@ -2,8 +2,10 @@
 pragma solidity =0.7.6;
 
 //import "../src/Compounder.sol";
-import "openzeppelin/token/ERC20/ERC20.sol";
-import "uniswap-v3-periphery/base/PoolInitializer.sol";
+import "./MyERC20.sol";
+import "@uniswap/v3-periphery/contracts/base/PoolInitializer.sol";
+import "@uniswap/v3-periphery/contracts/interfaces/INonfungiblePositionManager.sol";
+import "@uniswap/v3-core/contracts/libraries/TickMath.sol";
 
 contract UniswapHelper {
    
@@ -21,11 +23,11 @@ contract UniswapHelper {
             uint256 amount1
         )
     {
-        ERC20 token0 = new ERC20("test", "test");
-        ERC20 token1 = new ERC20("test", "test");
-        token0._mint(address(this), 5000);
-        token1._mint(address(this), 5000);
-        
+        MyERC20 token0 = new MyERC20();
+        MyERC20 token1 = new MyERC20();
+        token0.mint(address(this), 5000);
+        token1.mint(address(this), 5000);
+
         PoolInitializer initalizer = new PoolInitializer();
 
         initalizer.createAndInitializePoolIfNecessary(token0, token1, 3000, 1000);

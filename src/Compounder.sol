@@ -15,7 +15,7 @@ import "./external/uniswap/v3-periphery/libraries/LiquidityAmounts.sol";
 import "./external/uniswap/v3-periphery/interfaces/INonfungiblePositionManager.sol";
 
 import "./ICompounder.sol";
-//import "hardhat/console.sol";
+import "forge-std/console.sol";
 
 /// @title Compounder, an automatic reinvesting tool for uniswap v3 positions
 /// @author kev1n
@@ -83,17 +83,12 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
         address,
         address from,
         uint256 tokenId,
-        bytes calldata data //regular users will leave data blank, but contracts will put anything in it
+        bytes calldata
     ) external override nonReentrant returns (bytes4) {
-    
         require(msg.sender == address(nonfungiblePositionManager), "!univ3 pos");
-        if (data.length == 0) {
-            _addToken(tokenId, tx.origin); //use tx.origin to support multicall sending of multiple positions in one txn
-            emit TokenDeposited(tx.origin, tokenId);
-        } else {
-            _addToken(tokenId, from); //single deposit for contracts
-            emit TokenDeposited(from, tokenId);
-        }
+
+        _addToken(tokenId, from);
+        emit TokenDeposited(from, tokenId);
         
         return this.onERC721Received.selector;
     }
