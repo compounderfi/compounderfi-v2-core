@@ -67,7 +67,7 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
     function AutoCompound25a502142c1769f58abaabfe4f9f4e8b89d24513(uint256 tokenId, bool rewardConversion) 
         override
         external
-        returns (uint256 fee0, uint256 fee1, uint256 compounded0, uint256 compounded1) 
+        returns (uint256 fee0, uint256 fee1, uint256 compounded0, uint256 compounded1, uint256 liqAdded) 
     {   
         AutoCompoundState memory state;
         state.tokenOwner = nonfungiblePositionManager.ownerOf(tokenId);
@@ -78,7 +78,7 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
         (state.amount0, state.amount1) = nonfungiblePositionManager.collect(
             INonfungiblePositionManager.CollectParams(tokenId, address(this), type(uint128).max, type(uint128).max)
         );
-
+        
         require(state.amount0 > 0 || state.amount1 > 0, "0claim");
 
         (, , state.token0, state.token1, state.fee, state.tickLower, state.tickUpper, , , , , ) = 
@@ -94,7 +94,8 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
             state.amount1 = state.amount1.sub(fee1);
             _increaseBalanceCaller(msg.sender, state.token1, fee1);
         }
-        
+        /* console.log(IERC20(state.token0).balanceOf(address(this)));
+        console.log(IERC20(state.token1).balanceOf(address(this))); */
         SwapParams memory swapParams = SwapParams(
             state.token0, 
             state.token1, 
@@ -106,10 +107,13 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
         );
         (state.amount0, state.amount1) = 
             _swapToPriceRatio(swapParams); //returns amount of 0 and 1 after swapping
-        console.log(state.amount0, state.amount1);
+        
+        /* console.log(IERC20(state.token0).balanceOf(address(this)));
+        console.log(IERC20(state.token1).balanceOf(address(this))); */
+
         // deposit liquidity into tokenId
         if (state.amount0 > 0 || state.amount1 > 0) {
-            (, compounded0, compounded1) = nonfungiblePositionManager.increaseLiquidity(
+            (liqAdded, compounded0, compounded1) = nonfungiblePositionManager.increaseLiquidity(
                 INonfungiblePositionManager.IncreaseLiquidityParams(
                     tokenId,
                     state.amount0,
@@ -120,7 +124,10 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
                 )
             );
         }
-        console.log(compounded0, compounded1);
+        /* console.log(fee0);
+        console.log(IERC20(state.token0).balanceOf(address(this)));
+        console.log(IERC20(state.token1).balanceOf(address(this)));
+        console.log(compounded0, compounded1); */
         
 
         emit AutoCompound();
@@ -225,13 +232,14 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
         if (state.delta0 > 0) {
             state.priceX96 = FullMath.mulDiv(state.sqrtPriceX96, state.sqrtPriceX96, Q96);
             if (state.sell0) {
+                
                 uint256 amountOut = _swap(
                     params.token0,
                     params.token1,
                     params.fee,
                     state.delta0
                 );
-
+                // console.log("token0 swap of", state.delta0, "for", amountOut);
                 amount0 = amount0.sub(state.delta0);
                 amount1 = amount1.add(amountOut);
             } else {
@@ -244,6 +252,8 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
                         params.fee,
                         state.delta1
                     );
+                    // console.log("token1 swap of", state.delta1, "for", amountOut);
+                    
                     amount0 = amount0.add(amountOut);
                     amount1 = amount1.sub(state.delta1);
                 }

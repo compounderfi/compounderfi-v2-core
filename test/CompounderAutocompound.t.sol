@@ -35,6 +35,7 @@ contract CompounderTest is Test {
         address token1;
         uint256 token0balancebefore;
         uint256 token1balancebefore;
+        uint256 liquidity;
     }
 
     struct MeasurementsAfter {
@@ -44,12 +45,13 @@ contract CompounderTest is Test {
         uint256 compounded1;
         uint256 amount0after;
         uint256 amount1after;
+        uint256 liqcompounded;
     }
 
     //uint256 tokenId, bool paidInToken0
-    function testPosition() public {
-        uint256 tokenId = 41471;
-        bool paidInToken0 = true;
+    function testPosition(uint256 tokenId, bool paidInToken0) public {
+        //uint256 tokenId = 31254;
+        //bool paidInToken0 = true;
         
         uint256 NFPMsupply = nonfungiblePositionManager.totalSupply();
         tokenId = bound(tokenId, 0, NFPMsupply);
@@ -62,18 +64,11 @@ contract CompounderTest is Test {
             MeasurementsAfter memory afterComp;
 
             //take measurements before the compound happens
-            (before.unclaimed0, before.unclaimed1, before.amount0before, before.amount1before, before.token0, before.token1) 
+            (before.liquidity, before.unclaimed0, before.unclaimed1, before.amount0before, before.amount1before, before.token0, before.token1) 
             = _takeBeforeMeasurements(tokenId);
-
 
             //approve tokenId to compounder
             nonfungiblePositionManager.approve(address(compounder), tokenId);
-            //nonfungiblePositionManager.setApprovalForAll(address(compounder), true);
-            //nonfungiblePositionManager.safeTransferFrom(owner, address(compounder), tokenId);
-
-            //did compounder successfully log the positions?
-            //assertEq(compounder.ownerOf(tokenId), owner);
-            //assertEq(arrayContains(compounder.addressToTokens(owner), tokenId), true);
 
             compounder.approveToken(IERC20(before.token0));
             compounder.approveToken(IERC20(before.token1));
@@ -81,8 +76,7 @@ contract CompounderTest is Test {
             if (before.unclaimed0 == 0 && before.unclaimed1 == 0) {
                 vm.expectRevert("0claim");
                 compounder.AutoCompound25a502142c1769f58abaabfe4f9f4e8b89d24513(tokenId, paidInToken0);
-            } else {
-                //there's enough to compound
+            } else {//there's enough to compound
 
                 vm.stopPrank(); //call from EOA instead of owner account
                 
@@ -91,7 +85,7 @@ contract CompounderTest is Test {
                 before.token1balancebefore = compounder.callerBalances(address(this), before.token1);
 
                 //see what compounder returns after compound
-                (afterComp.fee0, afterComp.fee1, afterComp.compounded0, afterComp.compounded1) = compounder.AutoCompound25a502142c1769f58abaabfe4f9f4e8b89d24513(tokenId, paidInToken0);
+                (afterComp.fee0, afterComp.fee1, afterComp.compounded0, afterComp.compounded1, afterComp.liqcompounded) = compounder.AutoCompound25a502142c1769f58abaabfe4f9f4e8b89d24513(tokenId, paidInToken0);
                 
                 (, , , , , , , uint128 liquidityafter, , , , ) = nonfungiblePositionManager.positions(tokenId);
                 vm.prank(address(compounder)); //prank compounder so that we can decrease liquidity
@@ -105,12 +99,13 @@ contract CompounderTest is Test {
                         block.timestamp
                     )
                 );
-                console.log(afterComp.amount0after, before.amount0before);
-                
+                //console.log(afterComp.amount0after, before.amount0before);
+                console.log(afterComp.amount1after, before.amount1before, afterComp.amount1after - before.amount1before);
                 //the amount added to the position is equal to the amount compounder says it added (within 0.1%)
-                assertApproxEqRel(afterComp.compounded0, afterComp.amount0after - before.amount0before, 0.001e18);
-                assertApproxEqRel(afterComp.compounded1, afterComp.amount1after - before.amount1before, 0.001e18);
+                //assertApproxEqRel(afterComp.compounded0, afterComp.amount0after - before.amount0before, 0.001e18);
+                //assertApproxEqRel(afterComp.compounded1, afterComp.amount1after - before.amount1before, 0.001e18);
                 
+                assertEq(afterComp.liqcompounded, liquidityafter - before.liquidity);
                 //assures EOA got paid as they should've
                 if (paidInToken0) {
                     assertEq(afterComp.fee0, before.unclaimed0 / compounder.grossCallerReward());
@@ -151,14 +146,12 @@ contract CompounderTest is Test {
         return doesListContainElement;
     }
 
-    function _takeBeforeMeasurements(uint256 tokenId) private returns(uint256 unclaimed0, uint256 unclaimed1, uint256 amount0before, uint256 amount1before, address token0, address token1) {
+    function _takeBeforeMeasurements(uint256 tokenId) private returns(uint128 liquiditybefore, uint256 unclaimed0, uint256 unclaimed1, uint256 amount0before, uint256 amount1before, address token0, address token1) {
         uint256 snapshot = vm.snapshot();
 
         (unclaimed0, unclaimed1) = nonfungiblePositionManager.collect(
         INonfungiblePositionManager.CollectParams(tokenId, address(this), type(uint128).max, type(uint128).max)
         );
-
-        uint128 liquiditybefore;
 
         (, , token0, token1, , , , liquiditybefore, , , , ) = nonfungiblePositionManager.positions(tokenId);
 
