@@ -3,17 +3,12 @@ pragma solidity =0.7.6;
 pragma abicoder v2;
 
 import "./external/openzeppelin/token/ERC20/IERC20Metadata.sol";
-import "./external/openzeppelin/token/ERC721/IERC721Receiver.sol";
 
 import "./external/uniswap/v3-core/interfaces/IUniswapV3Factory.sol";
 import "./external/uniswap/v3-periphery/interfaces/INonfungiblePositionManager.sol";
 import "./external/uniswap/v3-periphery/interfaces/ISwapRouter.sol";
 
-interface ICompounder is IERC721Receiver {
-
-    // token movements
-    event TokenDeposited(address account, uint256 tokenId);
-    event TokenWithdrawn(address account, address to, uint256 tokenId);
+interface ICompounder {
 
     /**
      * @notice reward paid out to compounder as a fraction of the caller's collected fees. ex: if protocolReward if 5, then the protocol will take 1/5 or 20% of the caller's fees and the caller will take 80%
@@ -30,21 +25,6 @@ interface ICompounder is IERC721Receiver {
     function grossCallerReward() external view returns (uint64);
 
     /**
-     * @notice  returns the owner of a compounder-managed NFT
-     * @param   tokenId the tokenId being checked
-     * @return  owner the owner of the tokenId
-     */
-    function ownerOf(uint256 tokenId) external view returns (address owner);
-
-    /**
-     * @notice  Tokens of owner by index
-     * @param   account the owner being checked
-     * @param   index the index of the array
-     * @return  tokenId the tokenId at that index for that owner
-     */
-    function accountTokens(address account, uint256 index) external view returns (uint256 tokenId);
-
-    /**
      * @notice Returns balance of token of callers
      * @param account Address of account
      * @param token Address of token
@@ -52,28 +32,7 @@ interface ICompounder is IERC721Receiver {
      */
     function callerBalances(address account, address token) external view returns (uint256 balance);
 
-    /**
-     * @notice finds the tokens an address has inside of the protocol
-     * @param   addr  the address of the account
-     * @return  openPositions  an array of the positions he/she has in the protocol 
-     */
-    function addressToTokens(address addr) external view returns (uint256[] memory openPositions);
-
-
-
-    /**
-     * @notice Removes a NFT from the protocol and safe transfers it to address to
-     * @param tokenId TokenId of token to remove
-     * @param to Address to send to
-     * @param withdrawBalances When true sends the available balances for token0 and token1 as well
-     * @param data data which is sent with the safeTransferFrom call
-     */
-    function withdrawToken(
-        uint256 tokenId,
-        address to,
-        bool withdrawBalances,
-        bytes memory data
-    ) external;
+    function approveToken(IERC20 token0) external;
 
     /**
      * @notice Withdraws token balance for a caller (their fees for compounding)
@@ -144,31 +103,4 @@ interface ICompounder is IERC721Receiver {
      */
     function AutoCompound25a502142c1769f58abaabfe4f9f4e8b89d24513(uint256 tokenId, bool rewardConversion) external returns (uint256 fee0, uint256 fee1, uint256 compounded0, uint256 compounded1);
 
-    struct DecreaseLiquidityAndCollectParams {
-        uint256 tokenId;
-        uint128 liquidity;
-        uint256 amount0Min;
-        uint256 amount1Min;
-        uint256 deadline;
-        address recipient;
-    }
-
-    /**
-     * @notice Special method to decrease liquidity and collect decreased amount - can only be called by the NFT owner
-     * @dev Needs to do collect at the same time, otherwise the available amount would be autocompoundable for other positions
-     * @param params DecreaseLiquidityAndCollectParams which are forwarded to the Uniswap V3 NonfungiblePositionManager
-     * @return amount0 amount of token0 removed and collected
-     * @return amount1 amount of token1 removed and collected
-     */
-    function decreaseLiquidityAndCollect(DecreaseLiquidityAndCollectParams calldata params)
-        external
-        returns (uint256 amount0, uint256 amount1);
-
-    /**
-     * @notice Forwards collect call from NonfungiblePositionManager to nft owner - can only be called by the NFT owner
-     * @param params INonfungiblePositionManager.CollectParams which are forwarded to the Uniswap V3 NonfungiblePositionManager
-     * @return amount0 amount of token0 collected
-     * @return amount1 amount of token1 collected
-     */
-    function collect(INonfungiblePositionManager.CollectParams calldata params) external returns (uint256 amount0, uint256 amount1);
 }

@@ -32,9 +32,6 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
     uint128 constant Q96 = 2**96;
     uint256 constant Q192 = 2**192;
 
-    // max positions
-    uint32 constant public MAX_POSITIONS_PER_ADDRESS = 100;
-
     //reward paid out to compounder as a fraction of the caller's collected fees. ex: if protocolReward if 5, then the protocol will take 1/5 or 20% of the caller's fees and the caller will take 80%
     uint64 public constant override protocolReward = 5;
 
@@ -46,51 +43,12 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
     INonfungiblePositionManager private immutable nonfungiblePositionManager;
     ISwapRouter private immutable swapRouter;
 
-    mapping(uint256 => address) public override ownerOf; //maps a tokenID to its owner - when sent to this contract to be autocompounded
-    mapping(address => uint256[]) public override accountTokens; //maps an address to all of the tokens it owns 
     mapping(address => mapping(address => uint256)) public override callerBalances; //maps a caller's address to each token's address to how much is owed to them by the protocol (rewards from calling the autocompound function)
 
     constructor(IUniswapV3Factory _factory, INonfungiblePositionManager _nonfungiblePositionManager, ISwapRouter _swapRouter) {
         factory = _factory;
         nonfungiblePositionManager = _nonfungiblePositionManager;
         swapRouter = _swapRouter;
-    }
-    
-    /**
-     * @notice modifier that makes sure the owner of a position is the sender
-     * @param tokenId the tokenId of the position being compared
-     */
-    modifier onlyPositionOwner(uint256 tokenId) {
-        require(ownerOf[tokenId] == msg.sender, "!owner");
-        _;
-    }
-
-    /**
-     * @notice finds the tokens an address has inside of the protocol
-     * @param   addr  the address of the account
-     * @return  uint256[]  an array of the positions he/she has in the protocol 
-     */
-    function addressToTokens(address addr) external view override returns (uint256[] memory) {
-        return accountTokens[addr];
-    }
-    
-    /**
-     * @notice  When receiving a Uniswap V3 NFT, deposits token with from as owner
-     * @param   tokenId  the tokenId being deposited into the protocol
-     * @return  bytes4  openzeppelin: "It must return its Solidity selector to confirm the token transfer"
-     */
-    function onERC721Received(
-        address,
-        address from,
-        uint256 tokenId,
-        bytes calldata
-    ) external override nonReentrant returns (bytes4) {
-        require(msg.sender == address(nonfungiblePositionManager), "!univ3 pos");
-
-        _addToken(tokenId, from);
-        emit TokenDeposited(from, tokenId);
-        
-        return this.onERC721Received.selector;
     }
 
     // @notice required to get the gas from graphql indexing
@@ -112,7 +70,7 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
         returns (uint256 fee0, uint256 fee1, uint256 compounded0, uint256 compounded1) 
     {   
         AutoCompoundState memory state;
-        state.tokenOwner = ownerOf[tokenId];
+        state.tokenOwner = nonfungiblePositionManager.ownerOf(tokenId);
 
         require(state.tokenOwner != address(0), "!found");
 
@@ -125,7 +83,6 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
 
         (, , state.token0, state.token1, state.fee, state.tickLower, state.tickUpper, , , , , ) = 
         nonfungiblePositionManager.positions(tokenId);
-
 
         //caller earns 1/40th of their token of choice
         if (rewardConversion) {
@@ -149,7 +106,7 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
         );
         (state.amount0, state.amount1) = 
             _swapToPriceRatio(swapParams); //returns amount of 0 and 1 after swapping
-            
+        console.log(state.amount0, state.amount1);
         // deposit liquidity into tokenId
         if (state.amount0 > 0 || state.amount1 > 0) {
             (, compounded0, compounded1) = nonfungiblePositionManager.increaseLiquidity(
@@ -163,85 +120,18 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
                 )
             );
         }
+        console.log(compounded0, compounded1);
+        
 
         emit AutoCompound();
     }
 
-    /**
-     * @notice Special method to decrease liquidity and collect decreased amount - can only be called by the NFT owner
-     * @dev Needs to do collect at the same time, otherwise the available amount would be autocompoundable for other positions
-     * @param params DecreaseLiquidityAndCollectParams which are forwarded to the Uniswap V3 NonfungiblePositionManager
-     * @return amount0 amount of token0 removed and collected
-     * @return amount1 amount of token1 removed and collected
-     */
-    function decreaseLiquidityAndCollect(DecreaseLiquidityAndCollectParams calldata params) 
-        override 
-        external  
-        nonReentrant
-        onlyPositionOwner(params.tokenId)
-        returns (uint256 amount0, uint256 amount1) 
-    {
-        (amount0, amount1) = nonfungiblePositionManager.decreaseLiquidity(
-            INonfungiblePositionManager.DecreaseLiquidityParams(
-                params.tokenId, 
-                params.liquidity, 
-                params.amount0Min, 
-                params.amount1Min,
-                params.deadline
-            )
-        );
-
-        INonfungiblePositionManager.CollectParams memory collectParams = 
-            INonfungiblePositionManager.CollectParams(
-                params.tokenId, 
-                params.recipient, 
-                LiquidityAmounts.toUint128(amount0), 
-                LiquidityAmounts.toUint128(amount1)
-            );
-
-        nonfungiblePositionManager.collect(collectParams);
-    }
-
-    /**
-     * @notice Forwards collect call from NonfungiblePositionManager to nft owner - can only be called by the NFT owner
-     * @param params INonfungiblePositionManager.CollectParams which are forwarded to the Uniswap V3 NonfungiblePositionManager
-     * @return amount0 amount of token0 collected
-     * @return amount1 amount of token1 collected
-     */
-    function collect(INonfungiblePositionManager.CollectParams calldata params) 
-        override 
-        external
-        nonReentrant
-        onlyPositionOwner(params.tokenId)
-        returns (uint256 amount0, uint256 amount1) 
-    {
-        return nonfungiblePositionManager.collect(params);
-    }
-
-    /**
-     * @notice Removes a NFT from the protocol and safe transfers it to address to
-     * @param tokenId TokenId of token to remove
-     * @param to Address to send to
-     * @param withdrawBalances When true sends the available balances for token0 and token1 as well
-     * @param data data which is sent with the safeTransferFrom call
-     */
-    function withdrawToken(
-        uint256 tokenId,
-        address to,
-        bool withdrawBalances,
-        bytes memory data
-    ) external override nonReentrant onlyPositionOwner(tokenId) {
-        require(to != address(this), "to==this");
-
-         if (withdrawBalances) {// fine to withdraw before because the function is nonReetrant
-            nonfungiblePositionManager.collect(
-                INonfungiblePositionManager.CollectParams(tokenId, to, type(uint128).max, type(uint128).max)
-            );
+    function approveToken(IERC20 token) public override {
+        uint256 allowance = token.allowance(address(this), address(nonfungiblePositionManager));
+        if (allowance == 0) {
+            SafeERC20.safeApprove(token, address(nonfungiblePositionManager), type(uint256).max);
+            SafeERC20.safeApprove(token, address(swapRouter), type(uint256).max);
         }
-
-        _removeToken(msg.sender, tokenId);
-        nonfungiblePositionManager.safeTransferFrom(address(this), to, tokenId, data);
-        emit TokenWithdrawn(msg.sender, to, tokenId);
     }
 
     /**
@@ -259,8 +149,6 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
 
     //for caller only
     function _increaseBalanceCaller(address account, address tokenAddress, uint256 amount) private {
-        console.log( account,  tokenAddress, amount);
-        
         if(amount > 0) {
             callerBalances[account][tokenAddress] = callerBalances[account][tokenAddress].add(amount);
         }
@@ -275,54 +163,6 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
 
         SafeERC20.safeTransfer(IERC20(tokenAddress), to, callerFees);
         SafeERC20.safeTransfer(IERC20(tokenAddress), owner(), protocolFees);
-    }
-
-    function _addToken(uint256 tokenId, address account) private {
-
-        require(accountTokens[account].length < MAX_POSITIONS_PER_ADDRESS, "max positions reached");
-
-        // get tokens for this nft
-        (, , address token0, address token1, , , , , , , , ) = nonfungiblePositionManager.positions(tokenId);
-
-        _checkApprovals(IERC20(token0), IERC20(token1));
-
-        accountTokens[account].push(tokenId);
-        ownerOf[tokenId] = account;
-    }
-
-    function _checkApprovals(IERC20 token0, IERC20 token1) private {
-        // approve tokens once if not yet approved
-        uint256 allowance0 = token0.allowance(address(this), address(nonfungiblePositionManager));
-        if (allowance0 == 0) {
-            SafeERC20.safeApprove(token0, address(nonfungiblePositionManager), type(uint256).max);
-            SafeERC20.safeApprove(token0, address(swapRouter), type(uint256).max);
-        }
-        uint256 allowance1 = token1.allowance(address(this), address(nonfungiblePositionManager));
-        if (allowance1 == 0) {
-            SafeERC20.safeApprove(token1, address(nonfungiblePositionManager), type(uint256).max);
-            SafeERC20.safeApprove(token1, address(swapRouter), type(uint256).max);
-        }
-    }
-
-    function _removeToken(address account, uint256 tokenId) private {
-        uint256[] memory accountTokensArr = accountTokens[account];
-        uint256 len = accountTokensArr.length;
-        uint256 assetIndex = len;
-
-        // limited by MAX_POSITIONS_PER_ADDRESS (no out-of-gas problem)
-        for (uint256 i = 0; i < len; i++) {
-            if (accountTokensArr[i] == tokenId) {
-                assetIndex = i;
-                break;
-            }
-        }
-        assert(assetIndex < len);
-
-        uint256[] storage storedList = accountTokens[account];
-        storedList[assetIndex] = storedList[storedList.length - 1];
-        storedList.pop();
-
-        delete ownerOf[tokenId];
     }
 
     // checks oracle for fair price - swaps to position ratio (considering estimated reward) - calculates max amount to be added

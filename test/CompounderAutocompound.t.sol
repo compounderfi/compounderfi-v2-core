@@ -11,8 +11,6 @@ import "../src/ICompounder.sol";
 
 
 contract CompounderTest is Test {
-    using stdStorage for StdStorage;
-    
     ICompounder private compounder;
 
     INonfungiblePositionManager private nonfungiblePositionManager;
@@ -50,7 +48,7 @@ contract CompounderTest is Test {
 
     //uint256 tokenId, bool paidInToken0
     function testPosition() public {
-        uint256 tokenId = 7441;
+        uint256 tokenId = 41471;
         bool paidInToken0 = true;
         
         uint256 NFPMsupply = nonfungiblePositionManager.totalSupply();
@@ -68,14 +66,17 @@ contract CompounderTest is Test {
             = _takeBeforeMeasurements(tokenId);
 
 
-            //send tokenId to compounder
+            //approve tokenId to compounder
             nonfungiblePositionManager.approve(address(compounder), tokenId);
-            nonfungiblePositionManager.safeTransferFrom(owner, address(compounder), tokenId);
+            //nonfungiblePositionManager.setApprovalForAll(address(compounder), true);
+            //nonfungiblePositionManager.safeTransferFrom(owner, address(compounder), tokenId);
 
             //did compounder successfully log the positions?
-            assertEq(compounder.ownerOf(tokenId), owner);
-            assertEq(arrayContains(compounder.addressToTokens(owner), tokenId), true);
+            //assertEq(compounder.ownerOf(tokenId), owner);
+            //assertEq(arrayContains(compounder.addressToTokens(owner), tokenId), true);
 
+            compounder.approveToken(IERC20(before.token0));
+            compounder.approveToken(IERC20(before.token1));
             //if nothing to compound then revert
             if (before.unclaimed0 == 0 && before.unclaimed1 == 0) {
                 vm.expectRevert("0claim");
@@ -104,6 +105,7 @@ contract CompounderTest is Test {
                         block.timestamp
                     )
                 );
+                console.log(afterComp.amount0after, before.amount0before);
                 
                 //the amount added to the position is equal to the amount compounder says it added (within 0.1%)
                 assertApproxEqRel(afterComp.compounded0, afterComp.amount0after - before.amount0before, 0.001e18);
@@ -114,12 +116,16 @@ contract CompounderTest is Test {
                     assertEq(afterComp.fee0, before.unclaimed0 / compounder.grossCallerReward());
                     assertEq(compounder.callerBalances(address(this), before.token0), before.token0balancebefore + afterComp.fee0);         
                     assertEq(before.token1balancebefore, compounder.callerBalances(address(this), before.token1));
+
+                    //compounder.
                 } else {
                     assertEq(afterComp.fee1, before.unclaimed1 / compounder.grossCallerReward());
                     assertEq(compounder.callerBalances(address(this), before.token1), before.token1balancebefore + afterComp.fee1);
                     assertEq(before.token0balancebefore, compounder.callerBalances(address(this), before.token0));
                 }
-                    
+                
+
+
             }
         
 
