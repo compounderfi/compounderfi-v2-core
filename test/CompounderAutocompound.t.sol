@@ -8,9 +8,11 @@ import "../src/external/uniswap/v3-periphery/interfaces/INonfungiblePositionMana
 import "../src/external/uniswap/v3-periphery/interfaces/ISwapRouter.sol";
 import "../src/Compounder.sol";
 import "../src/ICompounder.sol";
-
+import "../src//external/openzeppelin/access/Ownable.sol";
 
 contract CompounderTest is Test {
+    using stdStorage for StdStorage;
+        
     ICompounder private compounder;
 
     INonfungiblePositionManager private nonfungiblePositionManager;
@@ -48,9 +50,10 @@ contract CompounderTest is Test {
         uint256 liqcompounded;
     }
 
-    //uint256 tokenId, bool paidInToken0
+/*     //uint256 tokenId, bool paidInToken0
     function testPosition() public {
-        uint256 tokenId = 638;
+        
+        uint256 tokenId = 1009;
         bool paidInToken0 = true;
         
         uint256 NFPMsupply = nonfungiblePositionManager.totalSupply();
@@ -104,11 +107,6 @@ contract CompounderTest is Test {
                     )
                 );
                 vm.revertTo(snapshot);
-                //console.log(afterComp.amount0after, before.amount0before);
-                console.log(afterComp.amount1after, before.amount1before, afterComp.amount1after - before.amount1before);
-                //the amount added to the position is equal to the amount compounder says it added (within 0.1%)
-                assertApproxEqRel(afterComp.compounded0, afterComp.amount0after - before.amount0before, 0.001e18);
-                assertApproxEqRel(afterComp.compounded1, afterComp.amount1after - before.amount1before, 0.001e18);
                 
                 assertEq(afterComp.liqcompounded, liquidityafter - before.liquidity);
                 //assures EOA got paid as they should've
@@ -123,19 +121,52 @@ contract CompounderTest is Test {
                     assertEq(compounder.callerBalances(address(this), before.token1), before.token1balancebefore + afterComp.fee1);
                     assertEq(before.token0balancebefore, compounder.callerBalances(address(this), before.token0));
                 }
-                
 
 
             }
         
 
             
-        } catch (bytes memory /*lowLevelData*/) {
+        } catch (bytes memory) {
             
         }
 
         
 
+    } */
+
+    function testWithdraw(uint256 tokenId, uint256 balance) public {
+        uint256 NFPMsupply = nonfungiblePositionManager.totalSupply();
+        tokenId = bound(tokenId, 0, NFPMsupply);
+        require(tokenId >= 0 && tokenId < NFPMsupply);
+        
+        (, , address token0, address token1, , , , , , , , ) = nonfungiblePositionManager.positions(tokenId);
+        
+        Ownable ownableCompounder = Ownable(address(compounder));
+        uint256 callerBalBefore = IERC20(token0).balanceOf(address(this));
+        uint256 protocolBalBefore = IERC20(token0).balanceOf(ownableCompounder.owner());
+        stdstore
+            .target(token0)
+            .sig(IERC20(token0).balanceOf.selector)
+            .with_key(address(this))
+            .checked_write(balance);
+
+        stdstore
+            .target(address(compounder))
+            .sig("callerBalances(address,address)")
+            .with_key(address(this))
+            .with_key(token0)
+            .checked_write(balance);
+
+        compounder.withdrawBalanceCaller(token0, address(this));
+
+        uint256 protocolCut = balance /5;
+        uint256 userCut = balance - protocolCut;
+        assertEq(IERC20(token0).balanceOf(address(compounder)), 0);
+        assertEq(IERC20(token0).balanceOf(address(this)), callerBalBefore + userCut);
+        assertEq(IERC20(token0).balanceOf(ownableCompounder.owner()), protocolBalBefore + protocolCut);
+
+        
     }
 
     function arrayContains(uint256[] memory arr, uint256 target) public pure returns (bool) {

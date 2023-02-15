@@ -107,9 +107,9 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
         );
         (state.amount0, state.amount1) = 
             _swapToPriceRatio(swapParams); //returns amount of 0 and 1 after swapping
-        
-        /* console.log(IERC20(state.token0).balanceOf(address(this)));
-        console.log(IERC20(state.token1).balanceOf(address(this))); */
+        console.log(state.amount0, state.amount1);
+        console.log(IERC20(state.token0).balanceOf(address(this)));
+        console.log(IERC20(state.token1).balanceOf(address(this)));
 
         // deposit liquidity into tokenId
         if (state.amount0 > 0 || state.amount1 > 0) {
@@ -124,6 +124,7 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
                 )
             );
         }
+        console.log(liqAdded, compounded0, compounded1);
         /* console.log(fee0);
         console.log(IERC20(state.token0).balanceOf(address(this)));
         console.log(IERC20(state.token1).balanceOf(address(this)));
@@ -239,7 +240,7 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
                     params.fee,
                     state.delta0
                 );
-                // console.log("token0 swap of", state.delta0, "for", amountOut);
+                console.log("token0 swap of", state.delta0, "for", amountOut);
                 amount0 = amount0.sub(state.delta0);
                 amount1 = amount1.add(amountOut);
             } else {
@@ -252,7 +253,7 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
                         params.fee,
                         state.delta1
                     );
-                    // console.log("token1 swap of", state.delta1, "for", amountOut);
+                    console.log("token1 swap of", state.delta1, "for", amountOut);
                     
                     amount0 = amount0.add(amountOut);
                     amount1 = amount1.sub(state.delta1);
