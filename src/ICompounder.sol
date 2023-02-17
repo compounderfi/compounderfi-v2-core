@@ -33,8 +33,6 @@ interface ICompounder {
      */
     function callerBalances(address account, address token) external view returns (uint256 balance);
 
-    function approveToken(IERC20 token0) external;
-
     /**
      * @notice Withdraws token balance for a caller (their fees for compounding)
      * @param tokenAddress Address of token to withdraw

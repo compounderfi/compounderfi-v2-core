@@ -15,7 +15,6 @@ import "./external/uniswap/v3-periphery/libraries/LiquidityAmounts.sol";
 import "./external/uniswap/v3-periphery/interfaces/INonfungiblePositionManager.sol";
 
 import "./ICompounder.sol";
-import "forge-std/console.sol";
 
 /// @title Compounder, an automatic reinvesting tool for uniswap v3 positions
 /// @author kev1n
@@ -70,6 +69,7 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
         returns (uint256 fee0, uint256 fee1, uint256 compounded0, uint256 compounded1, uint256 liqAdded) 
     {   
         AutoCompoundState memory state;
+        
         state.tokenOwner = nonfungiblePositionManager.ownerOf(tokenId);
 
         require(state.tokenOwner != address(0), "!found");
@@ -84,6 +84,8 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
         (, , state.token0, state.token1, state.fee, state.tickLower, state.tickUpper, , , , , ) = 
         nonfungiblePositionManager.positions(tokenId);
 
+        _checkApprovals(IERC20(state.token0), IERC20(state.token1));
+
         //caller earns 1/40th of their token of choice
         if (rewardConversion) {
             fee0 = state.amount0 / grossCallerReward; 
@@ -94,8 +96,7 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
             state.amount1 = state.amount1.sub(fee1);
             _increaseBalanceCaller(msg.sender, state.token1, fee1);
         }
-        /* console.log(IERC20(state.token0).balanceOf(address(this)));
-        console.log(IERC20(state.token1).balanceOf(address(this))); */
+
         SwapParams memory swapParams = SwapParams(
             state.token0, 
             state.token1, 
@@ -107,9 +108,6 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
         );
         (state.amount0, state.amount1) = 
             _swapToPriceRatio(swapParams); //returns amount of 0 and 1 after swapping
-        console.log(state.amount0, state.amount1);
-        console.log(IERC20(state.token0).balanceOf(address(this)));
-        console.log(IERC20(state.token1).balanceOf(address(this)));
 
         // deposit liquidity into tokenId
         if (state.amount0 > 0 || state.amount1 > 0) {
@@ -124,21 +122,21 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
                 )
             );
         }
-        console.log(liqAdded, compounded0, compounded1);
-        /* console.log(fee0);
-        console.log(IERC20(state.token0).balanceOf(address(this)));
-        console.log(IERC20(state.token1).balanceOf(address(this)));
-        console.log(compounded0, compounded1); */
-        
 
         emit AutoCompound();
     }
 
-    function approveToken(IERC20 token) public override {
-        uint256 allowance = token.allowance(address(this), address(nonfungiblePositionManager));
-        if (allowance == 0) {
-            SafeERC20.safeApprove(token, address(nonfungiblePositionManager), type(uint256).max);
-            SafeERC20.safeApprove(token, address(swapRouter), type(uint256).max);
+    function _checkApprovals(IERC20 token0, IERC20 token1) private {
+        // approve tokens once if not yet approved
+        uint256 allowance0 = token0.allowance(address(this), address(nonfungiblePositionManager));
+        if (allowance0 == 0) {
+            SafeERC20.safeApprove(token0, address(nonfungiblePositionManager), type(uint256).max);
+            SafeERC20.safeApprove(token0, address(swapRouter), type(uint256).max);
+        }
+        uint256 allowance1 = token1.allowance(address(this), address(nonfungiblePositionManager));
+        if (allowance1 == 0) {
+            SafeERC20.safeApprove(token1, address(nonfungiblePositionManager), type(uint256).max);
+            SafeERC20.safeApprove(token1, address(swapRouter), type(uint256).max);
         }
     }
 
@@ -240,7 +238,7 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
                     params.fee,
                     state.delta0
                 );
-                console.log("token0 swap of", state.delta0, "for", amountOut);
+
                 amount0 = amount0.sub(state.delta0);
                 amount1 = amount1.add(amountOut);
             } else {
@@ -253,7 +251,6 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
                         params.fee,
                         state.delta1
                     );
-                    console.log("token1 swap of", state.delta1, "for", amountOut);
                     
                     amount0 = amount0.add(amountOut);
                     amount1 = amount1.sub(state.delta1);

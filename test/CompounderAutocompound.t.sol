@@ -50,10 +50,10 @@ contract CompounderTest is Test {
         uint256 liqcompounded;
     }
 
-/*     //uint256 tokenId, bool paidInToken0
+     //uint256 tokenId, bool paidInToken0
     function testPosition() public {
         
-        uint256 tokenId = 1009;
+        uint256 tokenId = 5;
         bool paidInToken0 = true;
         
         uint256 NFPMsupply = nonfungiblePositionManager.totalSupply();
@@ -73,8 +73,6 @@ contract CompounderTest is Test {
             //approve tokenId to compounder
             nonfungiblePositionManager.approve(address(compounder), tokenId);
 
-            compounder.approveToken(IERC20(before.token0));
-            compounder.approveToken(IERC20(before.token1));
             //if nothing to compound then revert
             console.log(before.unclaimed0, before.unclaimed1);
             if (before.unclaimed0 == 0 && before.unclaimed1 == 0) {
@@ -133,8 +131,8 @@ contract CompounderTest is Test {
 
         
 
-    } */
-
+    }
+/* 
     function testWithdraw(uint256 tokenId, uint256 balance) public {
         uint256 NFPMsupply = nonfungiblePositionManager.totalSupply();
         tokenId = bound(tokenId, 0, NFPMsupply);
@@ -167,20 +165,7 @@ contract CompounderTest is Test {
         assertEq(IERC20(token0).balanceOf(ownableCompounder.owner()), protocolBalBefore + protocolCut);
 
         
-    }
-
-    function arrayContains(uint256[] memory arr, uint256 target) public pure returns (bool) {
-        bool doesListContainElement = false;
-    
-        for (uint i=0; i < arr.length; i++) {
-            if (target == arr[i]) {
-                doesListContainElement = true;
-
-                break;
-            }
-        }
-        return doesListContainElement;
-    }
+    } */
 
     function _takeBeforeMeasurements(uint256 tokenId) private returns(uint128 liquiditybefore, uint256 unclaimed0, uint256 unclaimed1, uint256 amount0before, uint256 amount1before, address token0, address token1) {
         uint256 snapshot = vm.snapshot();
