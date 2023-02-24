@@ -51,7 +51,7 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
     }
 
     // @notice required to get the gas from graphql indexing
-    event AutoCompound(); 
+    event AutoCompound(uint256 fee0, uint256 fee1, uint256 compounded0, uint256 compounded1, uint256 liqAdded); 
 
     /**
      * @notice Autocompounds for a given NFT (anyone can call this and gets a percentage of the fees)
@@ -123,7 +123,7 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
             );
         }
 
-        emit AutoCompound();
+        emit AutoCompound(fee0, fee1, compounded0, compounded1, liqAdded);
     }
 
     function _checkApprovals(IERC20 token0, IERC20 token1) private {
