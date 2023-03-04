@@ -53,7 +53,7 @@ contract CompounderTest is Test {
      //uint256 tokenId, bool paidInToken0
     function testPosition() public {
         
-        uint256 tokenId = 5;
+        uint256 tokenId = 6;
         bool paidInToken0 = true;
         
         uint256 NFPMsupply = nonfungiblePositionManager.totalSupply();
@@ -69,31 +69,27 @@ contract CompounderTest is Test {
             //take measurements before the compound happens
             (before.liquidity, before.unclaimed0, before.unclaimed1, before.amount0before, before.amount1before, before.token0, before.token1) 
             = _takeBeforeMeasurements(tokenId);
-
+            
             //approve tokenId to compounder
             nonfungiblePositionManager.approve(address(compounder), tokenId);
 
             //if nothing to compound then revert
-            console.log(before.unclaimed0, before.unclaimed1);
             if (before.unclaimed0 == 0 && before.unclaimed1 == 0) {
                 vm.expectRevert("0claim");
                 compounder.AutoCompound25a502142c1769f58abaabfe4f9f4e8b89d24513(tokenId, paidInToken0);
             } else {//there's enough to compound
 
-                vm.stopPrank(); //call from EOA instead of owner account
-                
                 //log EOA balances before compound
                 before.token0balancebefore = compounder.callerBalances(address(this), before.token0);
                 before.token1balancebefore = compounder.callerBalances(address(this), before.token1);
 
                 //see what compounder returns after compound
-                (afterComp.fee0, afterComp.fee1, afterComp.compounded0, afterComp.compounded1, afterComp.liqcompounded) = compounder.AutoCompound25a502142c1769f58abaabfe4f9f4e8b89d24513(tokenId, paidInToken0);
-                
+                (afterComp.fee0, afterComp.fee1, afterComp.compounded0, afterComp.compounded1, afterComp.liqcompounded) 
+                = compounder.AutoCompound25a502142c1769f58abaabfe4f9f4e8b89d24513(tokenId, paidInToken0);
+
                 (, , , , , , , uint128 liquidityafter, , , , ) = nonfungiblePositionManager.positions(tokenId);
 
                 uint256 snapshot = vm.snapshot();
-
-                vm.prank(address(compounder)); //prank compounder so that we can decrease liquidity
 
                 (afterComp.amount0after, afterComp.amount1after) = nonfungiblePositionManager.decreaseLiquidity(
                     INonfungiblePositionManager.DecreaseLiquidityParams(
@@ -104,20 +100,24 @@ contract CompounderTest is Test {
                         block.timestamp
                     )
                 );
-                vm.revertTo(snapshot);
                 
-                assertEq(afterComp.liqcompounded, liquidityafter - before.liquidity);
+                vm.revertTo(snapshot);
+
+                assertEq(afterComp.liqcompounded, liquidityafter - before.liquidity, "liquidity actually added");
+
                 //assures EOA got paid as they should've
                 if (paidInToken0) {
-                    assertEq(afterComp.fee0, before.unclaimed0 / compounder.grossCallerReward());
-                    assertEq(compounder.callerBalances(address(this), before.token0), before.token0balancebefore + afterComp.fee0);         
-                    assertEq(before.token1balancebefore, compounder.callerBalances(address(this), before.token1));
+                    assertEq(afterComp.fee0, before.unclaimed0 / compounder.grossCallerReward(), "fee0 should be correct");
+                    assertEq(compounder.callerBalances(owner, before.token0), before.token0balancebefore + afterComp.fee0, "callerbalances added to right token0");         
+                    assertEq(before.token1balancebefore, compounder.callerBalances(owner, before.token1), "no token1 added");
 
-                    //compounder.
+                    compounder.withdrawBalanceCaller(before.token0, owner);
                 } else {
-                    assertEq(afterComp.fee1, before.unclaimed1 / compounder.grossCallerReward());
-                    assertEq(compounder.callerBalances(address(this), before.token1), before.token1balancebefore + afterComp.fee1);
-                    assertEq(before.token0balancebefore, compounder.callerBalances(address(this), before.token0));
+                    assertEq(afterComp.fee1, before.unclaimed1 / compounder.grossCallerReward(), "fee1 should be correct");
+                    assertEq(compounder.callerBalances(owner, before.token1), before.token1balancebefore + afterComp.fee1, "callerbalances added to right token1");
+                    assertEq(before.token0balancebefore, compounder.callerBalances(owner, before.token0), "no token0 added");
+                    
+                    compounder.withdrawBalanceCaller(before.token1, owner);
                 }
 
 
@@ -132,7 +132,7 @@ contract CompounderTest is Test {
         
 
     }
-/* 
+/* \\
     function testWithdraw(uint256 tokenId, uint256 balance) public {
         uint256 NFPMsupply = nonfungiblePositionManager.totalSupply();
         tokenId = bound(tokenId, 0, NFPMsupply);

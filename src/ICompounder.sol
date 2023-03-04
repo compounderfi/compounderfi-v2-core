@@ -26,12 +26,20 @@ interface ICompounder {
     function grossCallerReward() external view returns (uint64);
 
     /**
-     * @notice Returns balance of token of callers
+     * @notice Returns unclaimed balance of token of callers
      * @param account Address of account
      * @param token Address of token
      * @return balance amount debted to the position at token
      */
     function callerBalances(address account, address token) external view returns (uint256 balance);
+
+    /**
+     * @notice Returns unclaimed balance of the protocol for a specific token
+     * @param token Address of token
+     * @return balance amount debted to the protocol at token
+     */
+    function protocolBalances(address token) external view returns (uint256 balance);
+
 
     /**
      * @notice Withdraws token balance for a caller (their fees for compounding)
@@ -40,6 +48,13 @@ interface ICompounder {
      */
     function withdrawBalanceCaller(address tokenAddress, address to) external;
 
+    /**
+     * @notice Withdraws token balance for the protocol
+     * @param tokenAddress Address of token to withdraw
+     * @param to Address to send to
+     */
+    function withdrawBalanceProtocol(address tokenAddress, address to) external;
+    
     /**  
         @notice the parameters for the autoCompound function
         @param tokenId the tokenId being selected to compound

@@ -15,6 +15,7 @@ import "./external/uniswap/v3-periphery/libraries/LiquidityAmounts.sol";
 import "./external/uniswap/v3-periphery/interfaces/INonfungiblePositionManager.sol";
 
 import "./ICompounder.sol";
+import "forge-std/console.sol";
 
 /// @title Compounder, an automatic reinvesting tool for uniswap v3 positions
 /// @author kev1n
@@ -25,7 +26,7 @@ import "./ICompounder.sol";
  * Protocol refers to compounder.fi, the organization who created this contract
 **/
 contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
-
+    using SafeERC20 for IERC20;
     using SafeMath for uint256;
 
     uint128 constant Q96 = 2**96;
@@ -43,6 +44,7 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
     ISwapRouter private immutable swapRouter;
 
     mapping(address => mapping(address => uint256)) public override callerBalances; //maps a caller's address to each token's address to how much is owed to them by the protocol (rewards from calling the autocompound function)
+    mapping(address => uint256) public override protocolBalances; //protocol's unclaimed balances
 
     constructor(IUniswapV3Factory _factory, INonfungiblePositionManager _nonfungiblePositionManager, ISwapRouter _swapRouter) {
         factory = _factory;
@@ -51,7 +53,7 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
     }
 
     // @notice required to get the gas from graphql indexing
-    event AutoCompound(uint256 fee0, uint256 fee1, uint256 compounded0, uint256 compounded1, uint256 liqAdded); 
+    event AutoCompound(uint256 tokenId, uint256 fee0, uint256 fee1, uint256 compounded0, uint256 compounded1, uint256 liqAdded); 
 
     /**
      * @notice Autocompounds for a given NFT (anyone can call this and gets a percentage of the fees)
@@ -95,8 +97,9 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
             fee1 = state.amount1 / grossCallerReward;
             state.amount1 = state.amount1.sub(fee1);
             _increaseBalanceCaller(msg.sender, state.token1, fee1);
-        }
 
+        }
+        //console.log("fees collected", state.amount0, state.amount1);
         SwapParams memory swapParams = SwapParams(
             state.token0, 
             state.token1, 
@@ -106,10 +109,14 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
             state.amount0,
             state.amount1
         );
+        //console.log("amount0 before swap", state.amount0);
+        //console.log("amount1 before swap", state.amount1);
         (state.amount0, state.amount1) = 
             _swapToPriceRatio(swapParams); //returns amount of 0 and 1 after swapping
 
         // deposit liquidity into tokenId
+        //console.log("amount compounder wants to add", state.amount0, state.amount1);
+
         if (state.amount0 > 0 || state.amount1 > 0) {
             (liqAdded, compounded0, compounded1) = nonfungiblePositionManager.increaseLiquidity(
                 INonfungiblePositionManager.IncreaseLiquidityParams(
@@ -123,7 +130,10 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
             );
         }
 
-        emit AutoCompound(fee0, fee1, compounded0, compounded1, liqAdded);
+        console.log("what compound actually adds", compounded0, compounded1);
+        console.log(IERC20(state.token0).balanceOf(address(this)) - fee0, IERC20(state.token1).balanceOf(address(this)) - fee1);
+
+        emit AutoCompound(tokenId, fee0, fee1, compounded0, compounded1, liqAdded);
     }
 
     function _checkApprovals(IERC20 token0, IERC20 token1) private {
@@ -154,13 +164,6 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
     }
 
     //for caller only
-    function _increaseBalanceCaller(address account, address tokenAddress, uint256 amount) private {
-        if(amount > 0) {
-            callerBalances[account][tokenAddress] = callerBalances[account][tokenAddress].add(amount);
-        }
-    }
-
-    //for caller only
     function _withdrawBalanceInternalCaller(address tokenAddress, address to, uint256 amount) private {
         callerBalances[msg.sender][tokenAddress] = 0;
 
@@ -168,7 +171,36 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
         uint256 callerFees = amount.sub(protocolFees);
 
         SafeERC20.safeTransfer(IERC20(tokenAddress), to, callerFees);
-        SafeERC20.safeTransfer(IERC20(tokenAddress), owner(), protocolFees);
+        
+        _increaseBalanceProtocol(tokenAddress, protocolFees);
+    }
+
+    //for caller only
+    function _increaseBalanceCaller(address account, address tokenAddress, uint256 amount) private {
+        if(amount > 0) {
+            callerBalances[account][tokenAddress] = callerBalances[account][tokenAddress].add(amount);
+        }
+    }
+
+    //for owner only
+    function withdrawBalanceProtocol(address tokenAddress, address to) external override onlyOwner nonReentrant {
+        uint256 amount = callerBalances[msg.sender][tokenAddress];
+        require(amount > 0, "amount==0");
+        _withdrawBalanceInternalProtocol(tokenAddress, to, amount);
+    }
+
+    //for owner only
+    function _withdrawBalanceInternalProtocol(address tokenAddress, address to, uint256 amount) private {
+        protocolBalances[tokenAddress] = 0;
+
+        SafeERC20.safeTransfer(IERC20(tokenAddress), to, amount);
+    }
+    
+    //for owner only
+    function _increaseBalanceProtocol(address tokenAddress, uint256 amount) private {
+        if(amount > 0) {
+            protocolBalances[tokenAddress] = protocolBalances[tokenAddress].add(amount);
+        }
     }
 
     // checks oracle for fair price - swaps to position ratio (considering estimated reward) - calculates max amount to be added
@@ -219,6 +251,38 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
 
             uint256 amount1as0 = state.amountRatioX96.mul(amount1);
             uint256 amount0as96 = amount0.mul(Q96);
+            
+            
+            if (params.fee == 10000) {
+                //sqrt 1.01
+                //state.sqrtPriceX96 = (100000200000 * state.sqrtPriceX96) / 100000000000;
+                state.sqrtPriceX96 = (100498756211 * state.sqrtPriceX96) / 100000000000;
+            } else if (params.fee == 3000) {
+                //sqrt 1.003
+
+                state.sqrtPriceX96 = (100149887668 * state.sqrtPriceX96) / 100000000000;
+                //state.sqrtPriceX96 = (9984988733 * state.sqrtPriceX96) / 10000000000;
+            } else if (params.fee == 500) {
+                //sqrt 1.0005
+                state.sqrtPriceX96 = (100024996876 * state.sqrtPriceX96) / 100000000000;
+            } else if (params.fee == 100) {
+                //sqrt 1.0001
+                state.sqrtPriceX96 = (100004999875 * state.sqrtPriceX96) / 100000000000;
+            } else {
+            
+                //don't need overflow protection here because the max value for fee is 2^16
+                //max value for base before sqrt is 1.065536e+14: 2^16*100000000+100000000000000
+                //max value for base after sqrt is 10322480
+                
+                uint256 base = sqrt(params.fee * 100000000 + 100000000000000);
+                console.log(state.sqrtPriceX96);
+                console.log(base);
+                state.sqrtPriceX96 = (uint160(base) * state.sqrtPriceX96) / 10000000;
+                console.log(state.sqrtPriceX96);
+            }
+
+            
+            //assume no more fee tiers appear
 
             uint256 priceX192 = uint256(state.sqrtPriceX96).mul(state.sqrtPriceX96);
             state.sell0 = (amount1as0 < amount0as96);
@@ -227,9 +291,9 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
             } else {
                 state.delta0 = amount1as0.sub(amount0as96).div(FullMath.mulDiv(state.amountRatioX96, priceX192, Q192).add(Q96));
             }
+
         }
         if (state.delta0 > 0) {
-            state.priceX96 = FullMath.mulDiv(state.sqrtPriceX96, state.sqrtPriceX96, Q96);
             if (state.sell0) {
                 
                 uint256 amountOut = _swap(
@@ -238,20 +302,23 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
                     params.fee,
                     state.delta0
                 );
-
+                
+                console.log("swap %d token0 for %d of token1", state.delta0, amountOut);
                 amount0 = amount0.sub(state.delta0);
                 amount1 = amount1.add(amountOut);
             } else {
+                state.priceX96 = FullMath.mulDiv(state.sqrtPriceX96, state.sqrtPriceX96, Q96);
                 state.delta1 = FullMath.mulDiv(state.delta0, state.priceX96, Q96);
                 // prevent possible rounding to 0 issue
                 if (state.delta1 > 0) {
+
                     uint256 amountOut = _swap(
                         params.token1,
                         params.token0,
                         params.fee,
                         state.delta1
                     );
-                    
+                    console.log("swap %d token1 for %d of token0", state.delta1, amountOut);
                     amount0 = amount0.add(amountOut);
                     amount1 = amount1.sub(state.delta1);
                 }
@@ -273,6 +340,19 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
                 sqrtPriceLimitX96: 0
             });
             amountOut = swapRouter.exactInputSingle(params);
+        }
+    }
+
+    function sqrt(uint y) internal pure returns (uint z) {
+        if (y > 3) {
+            z = y;
+            uint x = y / 2 + 1;
+            while (x < z) {
+                z = x;
+                x = (y / x + x) / 2;
+            }
+        } else if (y != 0) {
+            z = 1;
         }
     }
 }
