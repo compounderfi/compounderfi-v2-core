@@ -61,9 +61,9 @@ interface ICompounder {
         @param rewardConversion true - take token0 as the caller fee, false - take token1 as the caller fee
         @param doSwap true - caller incurs the extra gas cost for 2% rewards of their selected token fee, false - caller spends less gas but gets 1.6% rewards of their specified token
     */
-    struct AutoCompoundParams {
-        // tokenid to autocompound
-        uint256 tokenId;
+    struct CompoundParams {
+        // tokenid to compound
+        uint248 tokenId;
         
         // which token to convert to
         bool rewardConversion;
@@ -80,7 +80,7 @@ interface ICompounder {
         uint256 amount1;
     }
 
-    struct AutoCompoundState {
+    struct CompoundState {
         uint256 amount0;
         uint256 amount1;
         uint256 excess0;
@@ -106,15 +106,14 @@ interface ICompounder {
     }
 
     /**
-     * @notice Autocompounds for a given NFT (anyone can call this and gets a percentage of the fees)
-     * @param tokenId the tokenId being selected to compound
-     * @param rewardConversion true - take token0 as the caller fee, false - take token1 as the caller fee
+     * @notice Compounds UniswapV3 fees for a given NFT (anyone can call this and gets a percentage of the fees)
+     * @param params the tokenId, rewardConversion being selected to compound
      * @return fee0 Amount of token0 caller recieves
      * @return fee1 Amount of token1 caller recieves
      * @return compounded0 Amount of token0 that was compounded
      * @return compounded1 Amount of token1 that was compounded
      * @dev AutoCompound25a502142c1769f58abaabfe4f9f4e8b89d24513 saves 70 gas (optimized function selector)
      */
-    function AutoCompound25a502142c1769f58abaabfe4f9f4e8b89d24513(uint256 tokenId, bool rewardConversion) external returns (uint256 fee0, uint256 fee1, uint256 compounded0, uint256 compounded1, uint256 liqadded);
+    function compound(CompoundParams calldata params) external returns (uint256 fee0, uint256 fee1, uint256 compounded0, uint256 compounded1, uint256 liqadded);
 
 }

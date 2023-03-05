@@ -15,7 +15,7 @@ import "./external/uniswap/v3-periphery/libraries/LiquidityAmounts.sol";
 import "./external/uniswap/v3-periphery/interfaces/INonfungiblePositionManager.sol";
 import "./external/uniswap/v3-core/interfaces/callback/IUniswapV3SwapCallback.sol";
 import "./ICompounder.sol";
-import "forge-std/console.sol";
+//import "forge-std/console.sol";
 
 /// @title Compounder, an automatic reinvesting tool for uniswap v3 positions
 /// @author kev1n
@@ -45,7 +45,7 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
     INonfungiblePositionManager private immutable nonfungiblePositionManager;
     ISwapRouter private immutable swapRouter;
 
-    mapping(address => mapping(address => uint256)) public override callerBalances; //maps a caller's address to each token's address to how much is owed to them by the protocol (rewards from calling the autocompound function)
+    mapping(address => mapping(address => uint256)) public override callerBalances; //maps a caller's address to each token's address to how much is owed to them by the protocol (rewards from calling the Compound function)
     mapping(address => uint256) public override protocolBalances; //protocol's unclaimed balances
 
     constructor(IUniswapV3Factory _factory, INonfungiblePositionManager _nonfungiblePositionManager, ISwapRouter _swapRouter) {
@@ -56,11 +56,6 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
 
     // @notice required to get the gas from graphql indexing
     event AutoCompound(uint256 tokenId, uint256 fee0, uint256 fee1, uint256 compounded0, uint256 compounded1, uint256 liqAdded); 
-
-    struct AutoCompoundParmas {
-        uint256 tokenId;
-        bool rewardConversion;
-    }
     
     struct SwapCallbackData {
         bytes path;
@@ -75,20 +70,19 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
 
     /**
      * @notice Autocompounds for a given NFT (anyone can call this and gets a percentage of the fees)
-     * @param tokenId the tokenId being selected to compound
-     * @param rewardConversion true - take token0 as the caller fee, false - take token1 as the caller fee
      * @return fee0 Amount of token0 caller recieves
      * @return fee1 Amount of token1 caller recieves
      * @return compounded0 Amount of token0 that was compounded
      * @return compounded1 Amount of token1 that was compounded
      * @dev AutoCompound25a502142c1769f58abaabfe4f9f4e8b89d24513 saves 70 gas (optimized function selector)
      */
-    function AutoCompound25a502142c1769f58abaabfe4f9f4e8b89d24513(uint256 tokenId, bool rewardConversion) 
+    function compound(CompoundParams calldata params) 
         override
         external
         returns (uint256 fee0, uint256 fee1, uint256 compounded0, uint256 compounded1, uint256 liqAdded) 
     {   
-        AutoCompoundState memory state;
+        (uint256 tokenId, bool rewardConversion) = (uint256(params.tokenId), params.rewardConversion);
+        CompoundState memory state;
         
         state.tokenOwner = nonfungiblePositionManager.ownerOf(tokenId);
 
@@ -117,7 +111,7 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
             _increaseBalanceCaller(msg.sender, state.token1, fee1);
 
         }
-        //console.log("fees collected", state.amount0, state.amount1);
+        
         SwapParams memory swapParams = SwapParams(
             state.token0, 
             state.token1, 
@@ -127,14 +121,12 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
             state.amount0,
             state.amount1
         );
-        //console.log("amount0 before swap", state.amount0);
-        //console.log("amount1 before swap", state.amount1);
+
         (state.amount0, state.amount1) = 
             _swapToPriceRatio(swapParams); //returns amount of 0 and 1 after swapping
 
         // deposit liquidity into tokenId
-        //console.log("amount compounder wants to add", state.amount0, state.amount1);
-
+        
         if (state.amount0 > 0 || state.amount1 > 0) {
             (liqAdded, compounded0, compounded1) = nonfungiblePositionManager.increaseLiquidity(
                 INonfungiblePositionManager.IncreaseLiquidityParams(
@@ -148,22 +140,7 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
             );
         }
 
-        console.log("what compound actually adds", compounded0, compounded1);
-        console.log(IERC20(state.token0).balanceOf(address(this)) - fee0, IERC20(state.token1).balanceOf(address(this)) - fee1);
-
         emit AutoCompound(tokenId, fee0, fee1, compounded0, compounded1, liqAdded);
-    }
-
-    function _checkApprovals(IERC20 token0, IERC20 token1) private {
-        // approve tokens once if not yet approved
-        uint256 allowance0 = token0.allowance(address(this), address(nonfungiblePositionManager));
-        if (allowance0 == 0) {
-            SafeERC20.safeApprove(token0, address(nonfungiblePositionManager), type(uint256).max);
-        }
-        uint256 allowance1 = token1.allowance(address(this), address(nonfungiblePositionManager));
-        if (allowance1 == 0) {
-            SafeERC20.safeApprove(token1, address(nonfungiblePositionManager), type(uint256).max);
-        }
     }
 
     /**
@@ -333,18 +310,10 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
                     4295128740, //equal to TickMath.MIN_SQRT_RATIO + 1
                     abi.encode(poolKey)
                 );
-                /*
-                uint256 amountOut = _swap(
-                    params.token0,
-                    params.token1,
-                    params.fee,
-                    state.delta0
-                );
-                */
                 
                 uint256 amountOut = uint256(-amount1Out);
 
-                console.log("swap %d token0 for %d of token1", state.delta0, amountOut);
+                //console.log("swap %d token0 for %d of token1", state.delta0, amountOut);
                 amount0 = amount0.sub(state.delta0);
                 amount1 = amount1.add(amountOut);
             } else {
@@ -360,17 +329,10 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
                         1461446703485210103287273052203988822378723970341, //equal to TickMath.MAX_SQRT_RATIO - 1
                         abi.encode(poolKey)
                     );
-                    /*
-                    uint256 amountOut = _swap(
-                        params.token1,
-                        params.token0,
-                        params.fee,
-                        state.delta1
-                    );
-                    */
+
                     uint256 amountOut = uint256(-amount0Out);
 
-                    console.log("swap %d token1 for %d of token0", state.delta1, amountOut);
+                    //console.log("swap %d token1 for %d of token0", state.delta1, amountOut);
                     amount0 = amount0.add(amountOut);
                     amount1 = amount1.sub(state.delta1);
                 }
@@ -378,20 +340,15 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
         }
     }
 
-    function _swap(address tokenIn, address tokenOut, uint24 fee, uint256 amount) private returns (uint256 amountOut) {
-        if (amount > 0) {
-            ISwapRouter.ExactInputSingleParams memory params = ISwapRouter
-            .ExactInputSingleParams({
-                tokenIn: tokenIn,
-                tokenOut: tokenOut,
-                fee: fee,
-                recipient: address(this),
-                deadline: block.timestamp,
-                amountIn: amount,
-                amountOutMinimum: 0,
-                sqrtPriceLimitX96: 0
-            });
-            amountOut = swapRouter.exactInputSingle(params);
+    function _checkApprovals(IERC20 token0, IERC20 token1) private {
+        // approve tokens once if not yet approved
+        uint256 allowance0 = token0.allowance(address(this), address(nonfungiblePositionManager));
+        if (allowance0 == 0) {
+            SafeERC20.safeApprove(token0, address(nonfungiblePositionManager), type(uint256).max);
+        }
+        uint256 allowance1 = token1.allowance(address(this), address(nonfungiblePositionManager));
+        if (allowance1 == 0) {
+            SafeERC20.safeApprove(token1, address(nonfungiblePositionManager), type(uint256).max);
         }
     }
 
@@ -423,7 +380,7 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
         if (amount1Delta > 0) IERC20(poolkey.token1).safeTransfer(msg.sender, uint256(amount1Delta));
     }
     
-    function sqrt(uint y) internal pure returns (uint z) {
+    function sqrt(uint y) private pure returns (uint z) {
         if (y > 3) {
             z = y;
             uint x = y / 2 + 1;
@@ -436,9 +393,10 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
         }
     }
 
-    function toInt256(uint256 value) internal pure returns (int256) {
+    function toInt256(uint256 value) private pure returns (int256) {
         // Note: Unsafe cast below is okay because `type(int256).max` is guaranteed to be positive
         require(value <= uint256(type(int256).max), "SafeCast: value doesn't fit in an int256");
         return int256(value);
     }
+
 }
