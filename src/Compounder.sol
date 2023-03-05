@@ -13,7 +13,7 @@ import "./external/uniswap/v3-core/libraries/TickMath.sol";
 import "./external/uniswap/v3-core/libraries/FullMath.sol";
 import "./external/uniswap/v3-periphery/libraries/LiquidityAmounts.sol";
 import "./external/uniswap/v3-periphery/interfaces/INonfungiblePositionManager.sol";
-
+import "./external/uniswap/v3-core/interfaces/callback/IUniswapV3SwapCallback.sol";
 import "./ICompounder.sol";
 import "forge-std/console.sol";
 
@@ -25,12 +25,14 @@ import "forge-std/console.sol";
  * Position refers to the uniswap v3 position/NFT
  * Protocol refers to compounder.fi, the organization who created this contract
 **/
-contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
+contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Ownable, Multicall {
     using SafeERC20 for IERC20;
     using SafeMath for uint256;
 
     uint128 constant Q96 = 2**96;
     uint256 constant Q192 = 2**192;
+
+    bytes32 private constant POOL_INIT_CODE_HASH = 0xe34f199b19b2b4f47f68442619d555527d244f78a3297ea89325f843f87b8b54;
 
     //reward paid out to compounder as a fraction of the caller's collected fees. ex: if protocolReward if 5, then the protocol will take 1/5 or 20% of the caller's fees and the caller will take 80%
     uint64 public constant override protocolReward = 5;
@@ -54,6 +56,22 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
 
     // @notice required to get the gas from graphql indexing
     event AutoCompound(uint256 tokenId, uint256 fee0, uint256 fee1, uint256 compounded0, uint256 compounded1, uint256 liqAdded); 
+
+    struct AutoCompoundParmas {
+        uint256 tokenId;
+        bool rewardConversion;
+    }
+    
+    struct SwapCallbackData {
+        bytes path;
+        address payer;
+    }
+
+    struct PoolKey {
+        address token0;
+        address token1;
+        uint24 fee;
+    }
 
     /**
      * @notice Autocompounds for a given NFT (anyone can call this and gets a percentage of the fees)
@@ -141,12 +159,10 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
         uint256 allowance0 = token0.allowance(address(this), address(nonfungiblePositionManager));
         if (allowance0 == 0) {
             SafeERC20.safeApprove(token0, address(nonfungiblePositionManager), type(uint256).max);
-            SafeERC20.safeApprove(token0, address(swapRouter), type(uint256).max);
         }
         uint256 allowance1 = token1.allowance(address(this), address(nonfungiblePositionManager));
         if (allowance1 == 0) {
             SafeERC20.safeApprove(token1, address(nonfungiblePositionManager), type(uint256).max);
-            SafeERC20.safeApprove(token1, address(swapRouter), type(uint256).max);
         }
     }
 
@@ -252,57 +268,82 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
             uint256 amount1as0 = state.amountRatioX96.mul(amount1);
             uint256 amount0as96 = amount0.mul(Q96);
             
-            
-            if (params.fee == 10000) {
-                //sqrt 1.01
-                //state.sqrtPriceX96 = (100000200000 * state.sqrtPriceX96) / 100000000000;
-                state.sqrtPriceX96 = (100498756211 * state.sqrtPriceX96) / 100000000000;
-            } else if (params.fee == 3000) {
-                //sqrt 1.003
-
-                state.sqrtPriceX96 = (100149887668 * state.sqrtPriceX96) / 100000000000;
-                //state.sqrtPriceX96 = (9984988733 * state.sqrtPriceX96) / 10000000000;
-            } else if (params.fee == 500) {
-                //sqrt 1.0005
-                state.sqrtPriceX96 = (100024996876 * state.sqrtPriceX96) / 100000000000;
-            } else if (params.fee == 100) {
-                //sqrt 1.0001
-                state.sqrtPriceX96 = (100004999875 * state.sqrtPriceX96) / 100000000000;
-            } else {
-            
-                //don't need overflow protection here because the max value for fee is 2^16
-                //max value for base before sqrt is 1.065536e+14: 2^16*100000000+100000000000000
-                //max value for base after sqrt is 10322480
-                
-                uint256 base = sqrt(params.fee * 100000000 + 100000000000000);
-                console.log(state.sqrtPriceX96);
-                console.log(base);
-                state.sqrtPriceX96 = (uint160(base) * state.sqrtPriceX96) / 10000000;
-                console.log(state.sqrtPriceX96);
-            }
-
-            
-            //assume no more fee tiers appear
-
-            uint256 priceX192 = uint256(state.sqrtPriceX96).mul(state.sqrtPriceX96);
             state.sell0 = (amount1as0 < amount0as96);
             if (state.sell0) {
+                if (params.fee == 10000) {
+                    //sqrt 1.01
+                    state.sqrtPriceX96 = (99498743710 * state.sqrtPriceX96) / 100000000000;
+                } else if (params.fee == 3000) {
+                    //sqrt 1.003
+                    state.sqrtPriceX96 = (99849887331 * state.sqrtPriceX96) / 100000000000;
+                } else if (params.fee == 500) {
+                    //sqrt 1.0005
+                    state.sqrtPriceX96 = (99974996874 * state.sqrtPriceX96) / 100000000000;
+                } else if (params.fee == 100) {
+                    //sqrt 1.0001
+                    state.sqrtPriceX96 = (99994999875 * state.sqrtPriceX96) / 100000000000;
+                } else {
+                
+                    //don't need overflow protection here because the max value for fee is 2^16
+                    //max value for base before sqrt is 1.065536e+14: 2^16*100000000+100000000000000
+                    //max value for base after sqrt is 10322480
+                    
+                    uint256 base = sqrt(100000000000000 - params.fee * 100000000);
+                    state.sqrtPriceX96 = (uint160(base) * state.sqrtPriceX96) / 10000000;
+                }
+                
+                uint256 priceX192 = uint256(state.sqrtPriceX96).mul(state.sqrtPriceX96);
                 state.delta0 = amount0as96.sub(amount1as0).div(FullMath.mulDiv(state.amountRatioX96, priceX192, Q192).add(Q96));
             } else {
+                if (params.fee == 10000) {
+                    //sqrt 1.01
+                    state.sqrtPriceX96 = (100498756211 * state.sqrtPriceX96) / 100000000000;
+                } else if (params.fee == 3000) {
+                    //sqrt 1.003
+                    state.sqrtPriceX96 = (100149887668 * state.sqrtPriceX96) / 100000000000;
+                } else if (params.fee == 500) {
+                    //sqrt 1.0005
+                    state.sqrtPriceX96 = (100024996876 * state.sqrtPriceX96) / 100000000000;
+                } else if (params.fee == 100) {
+                    //sqrt 1.0001
+                    state.sqrtPriceX96 = (100004999875 * state.sqrtPriceX96) / 100000000000;
+                } else {
+                
+                    //don't need overflow protection here because the max value for fee is 2^16
+                    //max value for base before sqrt is 1.065536e+14: 2^16*100000000+100000000000000
+                    //max value for base after sqrt is 10322480
+                    
+                    uint256 base = sqrt(params.fee * 100000000 + 100000000000000);
+                    state.sqrtPriceX96 = (uint160(base) * state.sqrtPriceX96) / 10000000;
+                }
+
+                uint256 priceX192 = uint256(state.sqrtPriceX96).mul(state.sqrtPriceX96);
                 state.delta0 = amount1as0.sub(amount0as96).div(FullMath.mulDiv(state.amountRatioX96, priceX192, Q192).add(Q96));
             }
 
         }
         if (state.delta0 > 0) {
+            PoolKey memory poolKey = PoolKey(params.token0, params.token1, params.fee);
             if (state.sell0) {
                 
+                (, int256 amount1Out) = pool.swap(
+                    address(this),
+                    state.sell0,
+                    toInt256(state.delta0),
+                    4295128740, //equal to TickMath.MIN_SQRT_RATIO + 1
+                    abi.encode(poolKey)
+                );
+                /*
                 uint256 amountOut = _swap(
                     params.token0,
                     params.token1,
                     params.fee,
                     state.delta0
                 );
+                */
                 
+                uint256 amountOut = uint256(-amount1Out);
+
                 console.log("swap %d token0 for %d of token1", state.delta0, amountOut);
                 amount0 = amount0.sub(state.delta0);
                 amount1 = amount1.add(amountOut);
@@ -310,14 +351,25 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
                 state.priceX96 = FullMath.mulDiv(state.sqrtPriceX96, state.sqrtPriceX96, Q96);
                 state.delta1 = FullMath.mulDiv(state.delta0, state.priceX96, Q96);
                 // prevent possible rounding to 0 issue
-                if (state.delta1 > 0) {
 
+                if (state.delta1 > 0) {
+                    (int256 amount0Out,) = pool.swap(
+                        address(this),
+                        state.sell0,
+                        toInt256(state.delta1),
+                        1461446703485210103287273052203988822378723970341, //equal to TickMath.MAX_SQRT_RATIO - 1
+                        abi.encode(poolKey)
+                    );
+                    /*
                     uint256 amountOut = _swap(
                         params.token1,
                         params.token0,
                         params.fee,
                         state.delta1
                     );
+                    */
+                    uint256 amountOut = uint256(-amount0Out);
+
                     console.log("swap %d token1 for %d of token0", state.delta1, amountOut);
                     amount0 = amount0.add(amountOut);
                     amount1 = amount1.sub(state.delta1);
@@ -343,6 +395,34 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
         }
     }
 
+    /// @dev Callback for Uniswap V3 pool.
+    function uniswapV3SwapCallback(
+        int256 amount0Delta,
+        int256 amount1Delta,
+        bytes calldata data //data is abi encoded PoolKey
+    ) external override {
+        PoolKey memory poolkey = abi.decode(data, (PoolKey));
+
+
+        address pool = address(
+            uint256(
+                keccak256(
+                    abi.encodePacked(
+                        hex'ff',
+                        factory,
+                        keccak256(data),
+                        POOL_INIT_CODE_HASH
+                    )
+                )
+            )
+        );
+
+        require(msg.sender == pool);
+
+        if (amount0Delta > 0) IERC20(poolkey.token0).safeTransfer(msg.sender, uint256(amount0Delta));
+        if (amount1Delta > 0) IERC20(poolkey.token1).safeTransfer(msg.sender, uint256(amount1Delta));
+    }
+    
     function sqrt(uint y) internal pure returns (uint z) {
         if (y > 3) {
             z = y;
@@ -354,5 +434,11 @@ contract Compounder is ICompounder, ReentrancyGuard, Ownable, Multicall {
         } else if (y != 0) {
             z = 1;
         }
+    }
+
+    function toInt256(uint256 value) internal pure returns (int256) {
+        // Note: Unsafe cast below is okay because `type(int256).max` is guaranteed to be positive
+        require(value <= uint256(type(int256).max), "SafeCast: value doesn't fit in an int256");
+        return int256(value);
     }
 }

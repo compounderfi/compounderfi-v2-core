@@ -53,23 +53,23 @@ contract CompounderTest is Test {
      //uint256 tokenId, bool paidInToken0
     function testPosition() public {
         
-        uint256 tokenId = 6;
+        uint256 tokenId = 447629;
         bool paidInToken0 = true;
         
-        uint256 NFPMsupply = nonfungiblePositionManager.totalSupply();
-        tokenId = bound(tokenId, 0, NFPMsupply);
-        require(tokenId >= 0 && tokenId < NFPMsupply);
+        //uint256 NFPMsupply = nonfungiblePositionManager.totalSupply();
+        //tokenId = bound(tokenId, 0, NFPMsupply);
+        //require(tokenId >= 0 && tokenId < NFPMsupply);
         
         try nonfungiblePositionManager.ownerOf(tokenId) returns (address owner) {
             startHoax(owner); //make owner the sender
-            
+
             MeasurementsBefore memory before;
             MeasurementsAfter memory afterComp;
 
             //take measurements before the compound happens
             (before.liquidity, before.unclaimed0, before.unclaimed1, before.amount0before, before.amount1before, before.token0, before.token1) 
             = _takeBeforeMeasurements(tokenId);
-            
+            console.log(before.unclaimed0, before.unclaimed1);
             //approve tokenId to compounder
             nonfungiblePositionManager.approve(address(compounder), tokenId);
 
