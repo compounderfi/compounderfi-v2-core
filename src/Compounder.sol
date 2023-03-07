@@ -15,7 +15,7 @@ import "./external/uniswap/v3-periphery/libraries/LiquidityAmounts.sol";
 import "./external/uniswap/v3-periphery/interfaces/INonfungiblePositionManager.sol";
 import "./external/uniswap/v3-core/interfaces/callback/IUniswapV3SwapCallback.sol";
 import "./ICompounder.sol";
-//import "forge-std/console.sol";
+import "forge-std/console.sol";
 
 /// @title Compounder, an automatic reinvesting tool for uniswap v3 positions
 /// @author kev1n
@@ -55,7 +55,7 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
     }
 
     // @notice required to get the gas from graphql indexing
-    event AutoCompound(uint256 tokenId, uint256 fee0, uint256 fee1, uint256 compounded0, uint256 compounded1, uint256 liqAdded); 
+    event Compound(uint256 tokenId, uint256 fee0, uint256 fee1, uint256 compounded0, uint256 compounded1, uint256 liqAdded); 
     
     struct SwapCallbackData {
         bytes path;
@@ -67,21 +67,22 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
         address token1;
         uint24 fee;
     }
-
+    
     /**
-     * @notice Autocompounds for a given NFT (anyone can call this and gets a percentage of the fees)
+     * @notice Compounds uniswapV3 fees for a given NFT (anyone can call this and gets a percentage of the fees)
+     * @param tokenId the tokenId being selected to compound
+     * @param paidIn0 true - take token0 as the caller fee, false - take token1 as the caller fee
      * @return fee0 Amount of token0 caller recieves
      * @return fee1 Amount of token1 caller recieves
      * @return compounded0 Amount of token0 that was compounded
      * @return compounded1 Amount of token1 that was compounded
      * @dev AutoCompound25a502142c1769f58abaabfe4f9f4e8b89d24513 saves 70 gas (optimized function selector)
      */
-    function compound(CompoundParams calldata params) 
+    function compound(uint256 tokenId, bool paidIn0) 
         override
         external
         returns (uint256 fee0, uint256 fee1, uint256 compounded0, uint256 compounded1, uint256 liqAdded) 
     {   
-        (uint256 tokenId, bool rewardConversion) = (uint256(params.tokenId), params.rewardConversion);
         CompoundState memory state;
         
         state.tokenOwner = nonfungiblePositionManager.ownerOf(tokenId);
@@ -101,7 +102,7 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
         _checkApprovals(IERC20(state.token0), IERC20(state.token1));
 
         //caller earns 1/40th of their token of choice
-        if (rewardConversion) {
+        if (paidIn0) {
             fee0 = state.amount0 / grossCallerReward; 
             state.amount0 = state.amount0.sub(fee0);
             _increaseBalanceCaller(msg.sender, state.token0, fee0);
@@ -140,7 +141,7 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
             );
         }
 
-        emit AutoCompound(tokenId, fee0, fee1, compounded0, compounded1, liqAdded);
+        emit Compound(tokenId, fee0, fee1, compounded0, compounded1, liqAdded);
     }
 
     /**
@@ -379,6 +380,25 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
         if (amount0Delta > 0) IERC20(poolkey.token0).safeTransfer(msg.sender, uint256(amount0Delta));
         if (amount1Delta > 0) IERC20(poolkey.token1).safeTransfer(msg.sender, uint256(amount1Delta));
     }
+
+    /// @dev this function should be called by compounding bots on L2 chains only to minimize gas costs.
+    /// @dev this minimizes gas costs because less calldata is rolled up to the L1, as little as 5 bytes of data versus 68 bytes when calling the compound function
+    /// @dev however, it should not be called on L1s because the computation costs exceed the gas costs
+    /// @dev to call this function you should send a transaction to this address with the following calldata:
+    /// @dev "0x" + hexadecimal encoded version of the tokenId + ("01" or "00")
+    /// @dev ex: calling the compound function with tokenId 48834 and paidIn0 as true should be:
+    /// @dev "0x0000BEC201" -> "0x" + "0000BEC2" (48834 as hex) + "01" (true)
+    fallback() external {
+        uint256 tokenId;
+        assembly {
+            tokenId := calldataload(0)
+        }
+
+        tokenId = tokenId >> (256-4*8); //select the first 4 bytes of calldata after the selector
+        bool paidIn0 = uint8(msg.data[4]) == 1; //select the last byte of calldata after the selector and the tokenId
+        
+        this.compound(tokenId, paidIn0);
+    } 
     
     function sqrt(uint y) private pure returns (uint z) {
         if (y > 3) {

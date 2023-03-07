@@ -50,6 +50,7 @@ contract CompounderTest is Test {
         uint256 liqcompounded;
     }
 
+    
      //uint256 tokenId, bool paidInToken0
     function testPosition() public {
         
@@ -61,8 +62,6 @@ contract CompounderTest is Test {
         //require(tokenId >= 0 && tokenId < NFPMsupply);
         
         try nonfungiblePositionManager.ownerOf(tokenId) returns (address owner) {
-            
-
             startHoax(owner); //make owner the sender
 
             MeasurementsBefore memory before;
@@ -78,9 +77,7 @@ contract CompounderTest is Test {
             //if nothing to compound then revert
             if (before.unclaimed0 == 0 && before.unclaimed1 == 0) {
                 vm.expectRevert("0claim");
-                compounder.compound(
-                    ICompounder.CompoundParams(uint248(tokenId), paidInToken0)
-                );
+                compounder.compound(tokenId, paidInToken0);
             } else {//there's enough to compound
 
                 //log EOA balances before compound
@@ -89,9 +86,7 @@ contract CompounderTest is Test {
 
                 //see what compounder returns after compound
                 (afterComp.fee0, afterComp.fee1, afterComp.compounded0, afterComp.compounded1, afterComp.liqcompounded) 
-                = compounder.compound(
-                    ICompounder.CompoundParams(uint248(tokenId), paidInToken0)
-                );
+                = compounder.compound(tokenId, paidInToken0);
 
                 (, , , , , , , uint128 liquidityafter, , , , ) = nonfungiblePositionManager.positions(tokenId);
 
@@ -138,6 +133,7 @@ contract CompounderTest is Test {
         
 
     }
+    
 /* \\
     function testWithdraw(uint256 tokenId, uint256 balance) public {
         uint256 NFPMsupply = nonfungiblePositionManager.totalSupply();
