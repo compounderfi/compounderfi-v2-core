@@ -5,4 +5,5 @@ libs = ["node_modules", "lib"]
 solc = "0.7.6"
 fuzz = { runs = 50 }
 optimizer_runs = 100000
+fs_permissions = [{ access = "read-write", path = "./"}]
 # See more config options https://github.com/foundry-rs/foundry/tree/master/config

@@ -32,14 +32,15 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
     uint128 constant Q96 = 2**96;
     uint256 constant Q192 = 2**192;
 
+    //this is for the custom pool.swap logic
     bytes32 private constant POOL_INIT_CODE_HASH = 0xe34f199b19b2b4f47f68442619d555527d244f78a3297ea89325f843f87b8b54;
 
     //reward paid out to compounder as a fraction of the caller's collected fees. ex: if protocolReward if 5, then the protocol will take 1/5 or 20% of the caller's fees and the caller will take 80%
     uint64 public constant override protocolReward = 5;
 
-    //the gross reward paid out to the caller. if the fee is 40, then the caller takes 1/40th of tokenA unclaimed fees or of tokenB unclaimed fees  
-    uint64 public constant override grossCallerReward = 40;
-
+    //the gross reward paid out to the caller. if the fee is 40, then the caller takes 1/40th of tokenA unclaimed fees or of tokenB unclaimed fees, depending on which one they choose
+    uint64 public constant override grossCallerReward = 50;
+    
     // uniswap v3 components
     IUniswapV3Factory private immutable factory;
     INonfungiblePositionManager private immutable nonfungiblePositionManager;
@@ -53,9 +54,6 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
         nonfungiblePositionManager = _nonfungiblePositionManager;
         swapRouter = _swapRouter;
     }
-
-    // @notice required to get the gas from graphql indexing
-    event Compound(uint256 tokenId, uint256 fee0, uint256 fee1, uint256 compounded0, uint256 compounded1, uint256 liqAdded); 
     
     struct SwapCallbackData {
         bytes path;
@@ -67,6 +65,8 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
         address token1;
         uint24 fee;
     }
+
+    event Compound(uint256 tokenId, uint256 fee0, uint256 fee1, uint256 compounded0, uint256 compounded1, uint256 liqAdded); 
     
     /**
      * @notice Compounds uniswapV3 fees for a given NFT (anyone can call this and gets a percentage of the fees)
@@ -87,13 +87,11 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
         
         state.tokenOwner = nonfungiblePositionManager.ownerOf(tokenId);
 
-        require(state.tokenOwner != address(0), "!found");
-
         // collect fees
         (state.amount0, state.amount1) = nonfungiblePositionManager.collect(
             INonfungiblePositionManager.CollectParams(tokenId, address(this), type(uint128).max, type(uint128).max)
         );
-        
+        //console.log(state.amount0, state.amount1);
         require(state.amount0 > 0 || state.amount1 > 0, "0claim");
 
         (, , state.token0, state.token1, state.fee, state.tickLower, state.tickUpper, , , , , ) = 
@@ -105,14 +103,12 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
         if (paidIn0) {
             fee0 = state.amount0 / grossCallerReward; 
             state.amount0 = state.amount0.sub(fee0);
-            _increaseBalanceCaller(msg.sender, state.token0, fee0);
         } else {
             fee1 = state.amount1 / grossCallerReward;
             state.amount1 = state.amount1.sub(fee1);
-            _increaseBalanceCaller(msg.sender, state.token1, fee1);
 
         }
-        
+
         SwapParams memory swapParams = SwapParams(
             state.token0, 
             state.token1, 
@@ -127,6 +123,7 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
             _swapToPriceRatio(swapParams); //returns amount of 0 and 1 after swapping
 
         // deposit liquidity into tokenId
+        console.log(state.amount0, state.amount1);
         
         if (state.amount0 > 0 || state.amount1 > 0) {
             (liqAdded, compounded0, compounded1) = nonfungiblePositionManager.increaseLiquidity(
@@ -139,6 +136,15 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
                     block.timestamp
                 )
             );
+        }
+        console.log(state.amount0, state.amount1);
+        console.log(compounded0, compounded1);
+        if (paidIn0) {
+            fee0 += state.amount0 - compounded0; //cannot underflow because state.amount0 >= compounded0
+            _increaseBalanceCaller(msg.sender, state.token0, fee0);
+        } else {
+            fee1 += state.amount1 - compounded1; 
+            _increaseBalanceCaller(msg.sender, state.token1, fee1);
         }
 
         emit Compound(tokenId, fee0, fee1, compounded0, compounded1, liqAdded);
@@ -204,6 +210,7 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
     {    
         SwapState memory state;
 
+        //initalize return variables
         amount0 = params.amount0;
         amount1 = params.amount1;
         
@@ -211,28 +218,27 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
         IUniswapV3Pool pool = IUniswapV3Pool(factory.getPool(params.token0, params.token1, params.fee));
         
         (state.sqrtPriceX96,state.tick,,,,,) = pool.slot0();
-
-        //the risk of an attack on twap price is negligible
-        
-        //example attack
-        //1. attacker swaps a lot of A for B, doing so will decrease the price of A relative to B
-        //2. attacker triggers autoCompound for positions in the same uniswap pool as the attack, which increases the liquidity available to them to swap back
-        //3. attacker swaps back a greater amount of B for A, benefitting from the reduction in slippage from the liquidity to net a profit
+        //even though we're swapping, we don't need TWAP protection
         
         //why it is not an issue:
         // * the amount of fees in the liquidity position, assuming that it is an automated process, will never reach an amount of liquidity that is profitable for the attacker,
-        // as it will be compounded efficiently
-        // * there is a significant gas cost to compound many positions
-        // * a larger pool will not have significant slippage
-        // * a smaller pool will not yield significant fees
+        // as it will be compounded efficiently. less amount in the swap -> lower price impact, generally be unprofitable for an attacker
+        // * Although is possible to compound multiple positions in the same transaction, sandwich all of those transactions together, and have a greater price impact as a result
+        // even if a position has a large enough amount of fees to cause price impact, it is rare that the other positions in the same pool will also have enough to cause a compounding effect on the price of the pool
+        // * Users tend to gravitate towards adding liquidity to pools with a little liquidity 
+        // * Users who provide meaningful % of the liquidity to small pools tend not to do so on ethereum, but chains with lower gas fees
+        // Lower gas fees -> less amount needed to compound with.
+        
 
         // calculate how much of the position needs to be converted to the other token
+        // these two extremities will revert if the tick changes to be in range after the swap
         if (state.tick >= params.tickUpper) {
+            console.log("tick >= tickUpper");
             state.delta0 = amount0;
             state.sell0 = true;
         } else if (state.tick <= params.tickLower) {
-            state.priceX96 = FullMath.mulDiv(state.sqrtPriceX96, state.sqrtPriceX96, Q96);
-            state.delta0 = FullMath.mulDiv(amount1, Q96, state.priceX96);
+            console.log("tick <= tickLower");
+            state.delta1 = amount1;
             state.sell0 = false;
         } else {
             (state.positionAmount0, state.positionAmount1) = LiquidityAmounts.getAmountsForLiquidity(
@@ -243,11 +249,17 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
                                                             
             state.amountRatioX96 = FullMath.mulDiv(state.positionAmount0, Q96, state.positionAmount1);
 
-            uint256 amount1as0 = state.amountRatioX96.mul(amount1);
-            uint256 amount0as96 = amount0.mul(Q96);
-            
-            state.sell0 = (amount1as0 < amount0as96);
+            uint256 amount1as0X96 = state.amountRatioX96.mul(amount1);
+            uint256 amount0as0X96 = amount0.mul(Q96);
+
+            state.sell0 = (amount1as0X96 < amount0as0X96);
+            //console.log("sqrtprice before", state.sqrtPriceX96);
+            state.priceX96 = FullMath.mulDiv(state.sqrtPriceX96, state.sqrtPriceX96, Q96);
             if (state.sell0) {
+                //Sometimes it is better not to account for the fees. This happens when there is a large swap that crosses tick bounds
+                //However, we assume that the swap is small enough that the pool will not switch ticks
+                //We will also pass whatever slippage from adding liquidity onto the keeper/caller
+                /*
                 if (params.fee == 10000) {
                     //sqrt 1.01
                     state.sqrtPriceX96 = (99498743710 * state.sqrtPriceX96) / 100000000000;
@@ -266,13 +278,13 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
                     //max value for base before sqrt is 1.065536e+14: 2^16*100000000+100000000000000
                     //max value for base after sqrt is 10322480
                     
-                    uint256 base = sqrt(100000000000000 - params.fee * 100000000);
+                    uint256 base = sqrt(100000000000000 - uint256(params.fee) * 100000000);
                     state.sqrtPriceX96 = (uint160(base) * state.sqrtPriceX96) / 10000000;
-                }
+                }*/
                 
-                uint256 priceX192 = uint256(state.sqrtPriceX96).mul(state.sqrtPriceX96);
-                state.delta0 = amount0as96.sub(amount1as0).div(FullMath.mulDiv(state.amountRatioX96, priceX192, Q192).add(Q96));
+                state.delta0 = amount0as0X96.sub(amount1as0X96).div(FullMath.mulDiv(state.amountRatioX96, state.priceX96, Q96).add(Q96));
             } else {
+                /*
                 if (params.fee == 10000) {
                     //sqrt 1.01
                     state.sqrtPriceX96 = (100498756211 * state.sqrtPriceX96) / 100000000000;
@@ -287,20 +299,22 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
                     state.sqrtPriceX96 = (100004999875 * state.sqrtPriceX96) / 100000000000;
                 } else {
                 
-                    //don't need overflow protection here because the max value for fee is 2^16
+                    //don't need overflow protection / muldiv here because the max value for fee is 2^16
                     //max value for base before sqrt is 1.065536e+14: 2^16*100000000+100000000000000
                     //max value for base after sqrt is 10322480
                     
-                    uint256 base = sqrt(params.fee * 100000000 + 100000000000000);
+                    uint256 base = sqrt(uint256(params.fee) * 100000000 + 100000000000000);
                     state.sqrtPriceX96 = (uint160(base) * state.sqrtPriceX96) / 10000000;
                 }
-
-                uint256 priceX192 = uint256(state.sqrtPriceX96).mul(state.sqrtPriceX96);
-                state.delta0 = amount1as0.sub(amount0as96).div(FullMath.mulDiv(state.amountRatioX96, priceX192, Q192).add(Q96));
+                */
+                
+                state.delta1 = amount1as0X96.sub(amount0as0X96).div(state.amountRatioX96.add(Q192.div(state.priceX96)));
             }
+            //console.log("sqrt price after", state.sqrtPriceX96);
+            //console.log("delta0", state.delta0);
 
         }
-        if (state.delta0 > 0) {
+        if (state.delta0 > 0 || state.delta1 > 0) {
             PoolKey memory poolKey = PoolKey(params.token0, params.token1, params.fee);
             if (state.sell0) {
                 
@@ -314,30 +328,29 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
                 
                 uint256 amountOut = uint256(-amount1Out);
 
-                //console.log("swap %d token0 for %d of token1", state.delta0, amountOut);
+                console.log("swap %d token0 for %d of token1", state.delta0, amountOut);
                 amount0 = amount0.sub(state.delta0);
                 amount1 = amount1.add(amountOut);
             } else {
-                state.priceX96 = FullMath.mulDiv(state.sqrtPriceX96, state.sqrtPriceX96, Q96);
-                state.delta1 = FullMath.mulDiv(state.delta0, state.priceX96, Q96);
-                // prevent possible rounding to 0 issue
+                (int256 amount0Out,) = pool.swap(
+                    address(this),
+                    state.sell0,
+                    toInt256(state.delta1),
+                    1461446703485210103287273052203988822378723970341, //equal to TickMath.MAX_SQRT_RATIO - 1
+                    abi.encode(poolKey)
+                );
 
-                if (state.delta1 > 0) {
-                    (int256 amount0Out,) = pool.swap(
-                        address(this),
-                        state.sell0,
-                        toInt256(state.delta1),
-                        1461446703485210103287273052203988822378723970341, //equal to TickMath.MAX_SQRT_RATIO - 1
-                        abi.encode(poolKey)
-                    );
-
-                    uint256 amountOut = uint256(-amount0Out);
-
-                    //console.log("swap %d token1 for %d of token0", state.delta1, amountOut);
-                    amount0 = amount0.add(amountOut);
-                    amount1 = amount1.sub(state.delta1);
-                }
+                uint256 amountOut = uint256(-amount0Out);
+                console.log(state.delta1);
+                console.log("swap %d token1 for %d of token0", state.delta1, amountOut);
+                amount0 = amount0.add(amountOut);
+                amount1 = amount1.sub(state.delta1);
+                
             }
+            (,state.tick,,,,,) = pool.slot0();
+            console.logInt(state.tick);
+            console.logInt(params.tickLower);
+            console.logInt(params.tickUpper);
         }
     }
 
@@ -384,7 +397,7 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
     /// @dev this function should be called by compounding bots on L2 chains only to minimize gas costs.
     /// @dev this minimizes gas costs because less calldata is rolled up to the L1, as little as 5 bytes of data versus 68 bytes when calling the compound function
     /// @dev however, it should not be called on L1s because the computation costs exceed the gas costs
-    /// @dev to call this function you should send a transaction to this address with the following calldata:
+    /// @dev to call this function you should send a raw transaction to this address with the following calldata:
     /// @dev "0x" + hexadecimal encoded version of the tokenId + ("01" or "00")
     /// @dev ex: calling the compound function with tokenId 48834 and paidIn0 as true should be:
     /// @dev "0x0000BEC201" -> "0x" + "0000BEC2" (48834 as hex) + "01" (true)

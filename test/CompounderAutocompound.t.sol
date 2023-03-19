@@ -33,8 +33,6 @@ contract CompounderTest is Test {
         uint256 unclaimed1;
         uint256 amount0before;
         uint256 amount1before;
-        address token0;
-        address token1;
         uint256 token0balancebefore;
         uint256 token1balancebefore;
         uint256 liquidity;
@@ -50,27 +48,37 @@ contract CompounderTest is Test {
         uint256 liqcompounded;
     }
 
+    struct PositionData {
+        address token0;
+        address token1;
+        IUniswapV3Pool pool;
+    }
     
      //uint256 tokenId, bool paidInToken0
     function testPosition() public {
         
-        uint256 tokenId = 447629;
+        uint256 tokenId = 461596;
         bool paidInToken0 = true;
-        
-        //uint256 NFPMsupply = nonfungiblePositionManager.totalSupply();
-        //tokenId = bound(tokenId, 0, NFPMsupply);
-        //require(tokenId >= 0 && tokenId < NFPMsupply);
+        /*
+        uint256 NFPMsupply = nonfungiblePositionManager.totalSupply();
+
+        tokenId = bound(tokenId, 400000, NFPMsupply);
+        require(tokenId >= 400000 && tokenId < NFPMsupply);
+        */
         
         try nonfungiblePositionManager.ownerOf(tokenId) returns (address owner) {
             startHoax(owner); //make owner the sender
 
             MeasurementsBefore memory before;
             MeasurementsAfter memory afterComp;
-
+            PositionData memory data;
             //take measurements before the compound happens
-            (before.liquidity, before.unclaimed0, before.unclaimed1, before.amount0before, before.amount1before, before.token0, before.token1) 
+            
+            (before.liquidity, before.unclaimed0, before.unclaimed1, before.amount0before, before.amount1before, data.token0, data.token1, data.pool) 
             = _takeBeforeMeasurements(tokenId);
-            console.log(before.unclaimed0, before.unclaimed1);
+            
+            
+
             //approve tokenId to compounder
             nonfungiblePositionManager.approve(address(compounder), tokenId);
 
@@ -81,12 +89,18 @@ contract CompounderTest is Test {
             } else {//there's enough to compound
 
                 //log EOA balances before compound
-                before.token0balancebefore = compounder.callerBalances(address(this), before.token0);
-                before.token1balancebefore = compounder.callerBalances(address(this), before.token1);
+                before.token0balancebefore = compounder.callerBalances(address(this), data.token0);
+                before.token1balancebefore = compounder.callerBalances(address(this), data.token1);
 
+                //(,int24 tickb,,,,,) = data.pool.slot0();
                 //see what compounder returns after compound
                 (afterComp.fee0, afterComp.fee1, afterComp.compounded0, afterComp.compounded1, afterComp.liqcompounded) 
                 = compounder.compound(tokenId, paidInToken0);
+
+                //(,int24 ticka,,,,,) = data.pool.slot0();
+
+                //console.logInt(int(tickb));
+                //console.logInt(int(ticka));
 
                 (, , , , , , , uint128 liquidityafter, , , , ) = nonfungiblePositionManager.positions(tokenId);
 
@@ -108,17 +122,25 @@ contract CompounderTest is Test {
 
                 //assures EOA got paid as they should've
                 if (paidInToken0) {
-                    assertEq(afterComp.fee0, before.unclaimed0 / compounder.grossCallerReward(), "fee0 should be correct");
-                    assertEq(compounder.callerBalances(owner, before.token0), before.token0balancebefore + afterComp.fee0, "callerbalances added to right token0");         
-                    assertEq(before.token1balancebefore, compounder.callerBalances(owner, before.token1), "no token1 added");
+                    vm.writeLine("./output.txt", uint2str((afterComp.fee0 * 10000) / before.unclaimed0));
+                    vm.writeLine("./output.txt", uint2str(tokenId));
 
-                    compounder.withdrawBalanceCaller(before.token0, owner);
+                    assertGe(afterComp.fee0, before.unclaimed0 / compounder.grossCallerReward(), "fee0 should be greater than 2%");
+                    assertLe(afterComp.fee0, before.unclaimed0 / 33, "fee0 should be less than 3%");
+                    assertGe(compounder.callerBalances(owner, data.token0), before.token0balancebefore + afterComp.fee0, "callerbalances added to right token0");         
+                    assertEq(before.token1balancebefore, compounder.callerBalances(owner, data.token1), "no token1 added");
+
+                    compounder.withdrawBalanceCaller(data.token0, owner);
                 } else {
-                    assertEq(afterComp.fee1, before.unclaimed1 / compounder.grossCallerReward(), "fee1 should be correct");
-                    assertEq(compounder.callerBalances(owner, before.token1), before.token1balancebefore + afterComp.fee1, "callerbalances added to right token1");
-                    assertEq(before.token0balancebefore, compounder.callerBalances(owner, before.token0), "no token0 added");
+                    vm.writeLine("./output.txt", uint2str((afterComp.fee1 * 10000) / before.unclaimed1));
+                    vm.writeLine("./output.txt", uint2str(tokenId));
+
+                    assertGe(afterComp.fee1, before.unclaimed1 / compounder.grossCallerReward(), "fee1 should be greater than 2%");
+                    assertLe(afterComp.fee1, before.unclaimed1 / 33, "fee1 should be less than 3%");
+                    assertGe(compounder.callerBalances(owner, data.token1), before.token1balancebefore + afterComp.fee1, "callerbalances added to right token1");
+                    assertEq(before.token0balancebefore, compounder.callerBalances(owner, data.token0), "no token0 added");
                     
-                    compounder.withdrawBalanceCaller(before.token1, owner);
+                    compounder.withdrawBalanceCaller(data.token1, owner);
                 }
 
 
@@ -169,14 +191,14 @@ contract CompounderTest is Test {
         
     } */
 
-    function _takeBeforeMeasurements(uint256 tokenId) private returns(uint128 liquiditybefore, uint256 unclaimed0, uint256 unclaimed1, uint256 amount0before, uint256 amount1before, address token0, address token1) {
+    function _takeBeforeMeasurements(uint256 tokenId) private returns(uint128 liquiditybefore, uint256 unclaimed0, uint256 unclaimed1, uint256 amount0before, uint256 amount1before, address token0, address token1, IUniswapV3Pool pool) {
         uint256 snapshot = vm.snapshot();
 
         (unclaimed0, unclaimed1) = nonfungiblePositionManager.collect(
         INonfungiblePositionManager.CollectParams(tokenId, address(this), type(uint128).max, type(uint128).max)
         );
-
-        (, , token0, token1, , , , liquiditybefore, , , , ) = nonfungiblePositionManager.positions(tokenId);
+        uint24 fee;
+        (, , token0, token1, fee, , , liquiditybefore, , , , ) = nonfungiblePositionManager.positions(tokenId);
 
         if (liquiditybefore == 0) {
             vm.expectRevert();
@@ -193,6 +215,29 @@ contract CompounderTest is Test {
         );
 
         vm.revertTo(snapshot);
+        pool = IUniswapV3Pool(factory.getPool(token0, token1, fee));
+    }
+
+    function uint2str(uint _i) internal pure returns (string memory _uintAsString) {
+        if (_i == 0) {
+            return "0";
+        }
+        uint j = _i;
+        uint len;
+        while (j != 0) {
+            len++;
+            j /= 10;
+        }
+        bytes memory bstr = new bytes(len);
+        uint k = len;
+        while (_i != 0) {
+            k = k-1;
+            uint8 temp = (48 + uint8(_i - _i / 10 * 10));
+            bytes1 b1 = bytes1(temp);
+            bstr[k] = b1;
+            _i /= 10;
+        }
+        return string(bstr);
     }
 
 
