@@ -15,7 +15,7 @@ import "./external/uniswap/v3-periphery/libraries/LiquidityAmounts.sol";
 import "./external/uniswap/v3-periphery/interfaces/INonfungiblePositionManager.sol";
 import "./external/uniswap/v3-core/interfaces/callback/IUniswapV3SwapCallback.sol";
 import "./ICompounder.sol";
-import "forge-std/console.sol";
+//import "forge-std/console.sol";
 
 /// @title Compounder, an automatic reinvesting tool for uniswap v3 positions
 /// @author kev1n
@@ -25,6 +25,7 @@ import "forge-std/console.sol";
  * Position refers to the uniswap v3 position/NFT
  * Protocol refers to compounder.fi, the organization who created this contract
 **/
+
 contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Ownable, Multicall {
     using SafeERC20 for IERC20;
     using SafeMath for uint256;
@@ -39,7 +40,13 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
     uint64 public constant override protocolReward = 5;
 
     //the gross reward paid out to the caller. if the fee is 40, then the caller takes 1/40th of tokenA unclaimed fees or of tokenB unclaimed fees, depending on which one they choose
-    uint64 public constant override grossCallerReward = 50;
+    uint64 public constant override grossCallerReward = 40;
+
+    //the max slippage allowed before reverting - slippage is a result of doing calculations on current prices and ratios, but these ratios might change after the swap is made.
+    //this number is a denominator, so 200 means 1/200 or 0.5% slippage is allowed to be given back to the caller.
+    //the caller is often rewarded with an extra 0.01-0.05% of unclaimed fees, and almost never as high as 0.5%+ unless for very unliquid positions, where there is high price impact for swapping
+    //if you compound a position that results in more than this, say 0.6% slippage, then the transaction will revert
+    uint64 public constant override maxIncreaseLiqSlippage = 200;
     
     // uniswap v3 components
     IUniswapV3Factory private immutable factory;
@@ -53,17 +60,6 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
         factory = _factory;
         nonfungiblePositionManager = _nonfungiblePositionManager;
         swapRouter = _swapRouter;
-    }
-    
-    struct SwapCallbackData {
-        bytes path;
-        address payer;
-    }
-
-    struct PoolKey {
-        address token0;
-        address token1;
-        uint24 fee;
     }
 
     event Compound(uint256 tokenId, uint256 fee0, uint256 fee1, uint256 compounded0, uint256 compounded1, uint256 liqAdded); 
@@ -91,7 +87,7 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
         (state.amount0, state.amount1) = nonfungiblePositionManager.collect(
             INonfungiblePositionManager.CollectParams(tokenId, address(this), type(uint128).max, type(uint128).max)
         );
-        //console.log(state.amount0, state.amount1);
+
         require(state.amount0 > 0 || state.amount1 > 0, "0claim");
 
         (, , state.token0, state.token1, state.fee, state.tickLower, state.tickUpper, , , , , ) = 
@@ -99,6 +95,9 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
 
         _checkApprovals(IERC20(state.token0), IERC20(state.token1));
 
+        state.maxIncreaseLiqSlippage0 = state.amount0 / maxIncreaseLiqSlippage;
+        state.maxIncreaseLiqSlippage1 = state.amount1 / maxIncreaseLiqSlippage;
+        
         //caller earns 1/40th of their token of choice
         if (paidIn0) {
             fee0 = state.amount0 / grossCallerReward; 
@@ -123,8 +122,8 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
             _swapToPriceRatio(swapParams); //returns amount of 0 and 1 after swapping
 
         // deposit liquidity into tokenId
-        console.log(state.amount0, state.amount1);
-        
+        //sometimes this will accrue slippage, and not all of the fees will be compounded. this is because the calculations for state.amount0 and state.amount1
+        //are based upon the current price ratio ratio of liquidity in the position, and both will change after the swap is made. However, this "slippage" is often negligible, and will be credited to the caller
         if (state.amount0 > 0 || state.amount1 > 0) {
             (liqAdded, compounded0, compounded1) = nonfungiblePositionManager.increaseLiquidity(
                 INonfungiblePositionManager.IncreaseLiquidityParams(
@@ -137,8 +136,11 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
                 )
             );
         }
-        console.log(state.amount0, state.amount1);
-        console.log(compounded0, compounded1);
+
+        require(state.maxIncreaseLiqSlippage0 > state.amount0 - compounded0, "slippageExceeded0");
+        require(state.maxIncreaseLiqSlippage1 > state.amount1 - compounded1, "slippageExceeded1");
+
+
         if (paidIn0) {
             fee0 += state.amount0 - compounded0; //cannot underflow because state.amount0 >= compounded0
             _increaseBalanceCaller(msg.sender, state.token0, fee0);
@@ -146,7 +148,7 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
             fee1 += state.amount1 - compounded1; 
             _increaseBalanceCaller(msg.sender, state.token1, fee1);
         }
-
+        
         emit Compound(tokenId, fee0, fee1, compounded0, compounded1, liqAdded);
     }
 
@@ -232,137 +234,77 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
 
         // calculate how much of the position needs to be converted to the other token
         // these two extremities will revert if the tick changes to be in range after the swap
-        if (state.tick >= params.tickUpper) {
-            console.log("tick >= tickUpper");
+        if (state.tick >= params.tickUpper) { //swap token0 to token1
             state.delta0 = amount0;
-            state.sell0 = true;
-        } else if (state.tick <= params.tickLower) {
-            console.log("tick <= tickLower");
+        } else if (state.tick <= params.tickLower) { //swap token1 to token0
             state.delta1 = amount1;
-            state.sell0 = false;
-        } else {
+        } else { //figure out whether to swap token0 to token1 or token1 to token0, and how much
             (state.positionAmount0, state.positionAmount1) = LiquidityAmounts.getAmountsForLiquidity(
                                                             state.sqrtPriceX96, 
                                                             TickMath.getSqrtRatioAtTick(params.tickLower), 
                                                             TickMath.getSqrtRatioAtTick(params.tickUpper), 
                                                             Q96);
                                                             
-            state.amountRatioX96 = FullMath.mulDiv(state.positionAmount0, Q96, state.positionAmount1);
 
+            state.amountRatioX96 = FullMath.mulDiv(state.positionAmount0, Q96, state.positionAmount1);
             uint256 amount1as0X96 = state.amountRatioX96.mul(amount1);
             uint256 amount0as0X96 = amount0.mul(Q96);
-
-            state.sell0 = (amount1as0X96 < amount0as0X96);
-            //console.log("sqrtprice before", state.sqrtPriceX96);
+            
             state.priceX96 = FullMath.mulDiv(state.sqrtPriceX96, state.sqrtPriceX96, Q96);
-            if (state.sell0) {
-                //Sometimes it is better not to account for the fees. This happens when there is a large swap that crosses tick bounds
-                //However, we assume that the swap is small enough that the pool will not switch ticks
-                //We will also pass whatever slippage from adding liquidity onto the keeper/caller
-                /*
-                if (params.fee == 10000) {
-                    //sqrt 1.01
-                    state.sqrtPriceX96 = (99498743710 * state.sqrtPriceX96) / 100000000000;
-                } else if (params.fee == 3000) {
-                    //sqrt 1.003
-                    state.sqrtPriceX96 = (99849887331 * state.sqrtPriceX96) / 100000000000;
-                } else if (params.fee == 500) {
-                    //sqrt 1.0005
-                    state.sqrtPriceX96 = (99974996874 * state.sqrtPriceX96) / 100000000000;
-                } else if (params.fee == 100) {
-                    //sqrt 1.0001
-                    state.sqrtPriceX96 = (99994999875 * state.sqrtPriceX96) / 100000000000;
-                } else {
-                
-                    //don't need overflow protection here because the max value for fee is 2^16
-                    //max value for base before sqrt is 1.065536e+14: 2^16*100000000+100000000000000
-                    //max value for base after sqrt is 10322480
-                    
-                    uint256 base = sqrt(100000000000000 - uint256(params.fee) * 100000000);
-                    state.sqrtPriceX96 = (uint160(base) * state.sqrtPriceX96) / 10000000;
-                }*/
-                
+
+            if (amount1as0X96 < amount0as0X96) {
+                //swap token0 for token1
+                //how much of token0 to swap is state.delta0
                 state.delta0 = amount0as0X96.sub(amount1as0X96).div(FullMath.mulDiv(state.amountRatioX96, state.priceX96, Q96).add(Q96));
             } else {
-                /*
-                if (params.fee == 10000) {
-                    //sqrt 1.01
-                    state.sqrtPriceX96 = (100498756211 * state.sqrtPriceX96) / 100000000000;
-                } else if (params.fee == 3000) {
-                    //sqrt 1.003
-                    state.sqrtPriceX96 = (100149887668 * state.sqrtPriceX96) / 100000000000;
-                } else if (params.fee == 500) {
-                    //sqrt 1.0005
-                    state.sqrtPriceX96 = (100024996876 * state.sqrtPriceX96) / 100000000000;
-                } else if (params.fee == 100) {
-                    //sqrt 1.0001
-                    state.sqrtPriceX96 = (100004999875 * state.sqrtPriceX96) / 100000000000;
-                } else {
-                
-                    //don't need overflow protection / muldiv here because the max value for fee is 2^16
-                    //max value for base before sqrt is 1.065536e+14: 2^16*100000000+100000000000000
-                    //max value for base after sqrt is 10322480
-                    
-                    uint256 base = sqrt(uint256(params.fee) * 100000000 + 100000000000000);
-                    state.sqrtPriceX96 = (uint160(base) * state.sqrtPriceX96) / 10000000;
-                }
-                */
-                
+                //swap token1 for token0
+                //how much of token1 to swap is state.delta1
                 state.delta1 = amount1as0X96.sub(amount0as0X96).div(state.amountRatioX96.add(Q192.div(state.priceX96)));
             }
-            //console.log("sqrt price after", state.sqrtPriceX96);
-            //console.log("delta0", state.delta0);
 
         }
-        if (state.delta0 > 0 || state.delta1 > 0) {
-            PoolKey memory poolKey = PoolKey(params.token0, params.token1, params.fee);
-            if (state.sell0) {
-                
-                (, int256 amount1Out) = pool.swap(
-                    address(this),
-                    state.sell0,
-                    toInt256(state.delta0),
-                    4295128740, //equal to TickMath.MIN_SQRT_RATIO + 1
-                    abi.encode(poolKey)
-                );
-                
-                uint256 amountOut = uint256(-amount1Out);
 
-                console.log("swap %d token0 for %d of token1", state.delta0, amountOut);
-                amount0 = amount0.sub(state.delta0);
-                amount1 = amount1.add(amountOut);
-            } else {
-                (int256 amount0Out,) = pool.swap(
-                    address(this),
-                    state.sell0,
-                    toInt256(state.delta1),
-                    1461446703485210103287273052203988822378723970341, //equal to TickMath.MAX_SQRT_RATIO - 1
-                    abi.encode(poolKey)
-                );
+        PoolKey memory poolKey = PoolKey(params.token0, params.token1, params.fee);
+        if (state.delta0 > 0) {
+            
+            (, int256 amount1Out) = pool.swap(
+                address(this),
+                true,
+                toInt256(state.delta0),
+                4295128740, //equal to TickMath.MIN_SQRT_RATIO + 1
+                abi.encode(poolKey)
+            );
+            
+            uint256 amountOut = uint256(-amount1Out);
 
-                uint256 amountOut = uint256(-amount0Out);
-                console.log(state.delta1);
-                console.log("swap %d token1 for %d of token0", state.delta1, amountOut);
-                amount0 = amount0.add(amountOut);
-                amount1 = amount1.sub(state.delta1);
-                
-            }
-            (,state.tick,,,,,) = pool.slot0();
-            console.logInt(state.tick);
-            console.logInt(params.tickLower);
-            console.logInt(params.tickUpper);
+            amount0 = amount0.sub(state.delta0);
+            amount1 = amount1.add(amountOut);
+        } else {
+            (int256 amount0Out,) = pool.swap(
+                address(this),
+                false,
+                toInt256(state.delta1),
+                1461446703485210103287273052203988822378723970341, //equal to TickMath.MAX_SQRT_RATIO - 1
+                abi.encode(poolKey)
+            );
+
+            uint256 amountOut = uint256(-amount0Out);
+            
+            amount0 = amount0.add(amountOut);
+            amount1 = amount1.sub(state.delta1);
         }
+        
     }
 
     function _checkApprovals(IERC20 token0, IERC20 token1) private {
         // approve tokens once if not yet approved
         uint256 allowance0 = token0.allowance(address(this), address(nonfungiblePositionManager));
         if (allowance0 == 0) {
-            SafeERC20.safeApprove(token0, address(nonfungiblePositionManager), type(uint256).max);
+            IERC20(token0).approve(address(nonfungiblePositionManager), type(uint256).max);
         }
         uint256 allowance1 = token1.allowance(address(this), address(nonfungiblePositionManager));
         if (allowance1 == 0) {
-            SafeERC20.safeApprove(token1, address(nonfungiblePositionManager), type(uint256).max);
+            IERC20(token1).approve(address(nonfungiblePositionManager), type(uint256).max);
         }
     }
 
@@ -399,6 +341,7 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
     /// @dev however, it should not be called on L1s because the computation costs exceed the gas costs
     /// @dev to call this function you should send a raw transaction to this address with the following calldata:
     /// @dev "0x" + hexadecimal encoded version of the tokenId + ("01" or "00")
+    /// @dev this is a total of 5 bytes of data: 4 for the tokenId and 1 for the boolean paidIn0
     /// @dev ex: calling the compound function with tokenId 48834 and paidIn0 as true should be:
     /// @dev "0x0000BEC201" -> "0x" + "0000BEC2" (48834 as hex) + "01" (true)
     fallback() external {
@@ -412,19 +355,6 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
         
         this.compound(tokenId, paidIn0);
     } 
-    
-    function sqrt(uint y) private pure returns (uint z) {
-        if (y > 3) {
-            z = y;
-            uint x = y / 2 + 1;
-            while (x < z) {
-                z = x;
-                x = (y / x + x) / 2;
-            }
-        } else if (y != 0) {
-            z = 1;
-        }
-    }
 
     function toInt256(uint256 value) private pure returns (int256) {
         // Note: Unsafe cast below is okay because `type(int256).max` is guaranteed to be positive

@@ -26,6 +26,15 @@ interface ICompounder {
     function grossCallerReward() external view returns (uint64);
 
     /**
+     * @notice //the max slippage allowed before reverting - slippage is a result of doing calculations on current prices and ratios, but these ratios might change after the swap is made.
+               //if you compound a position that results in more than this, say 0.6% slippage, then the transaction will revert
+               //the caller is often rewarded with an extra 0.01-0.05% of unclaimed fees, and almost never as high as 0.5%+ unless for very unliquid positions, where there is high price impact for swapping
+     * @return the this number is a denominator, so 200 means 1/200 or 0.5% slippage is allowed to be given back to the caller
+     */
+    
+    function maxIncreaseLiqSlippage() external view returns (uint64);
+
+    /**
      * @notice Returns unclaimed balance of token of callers
      * @param account Address of account
      * @param token Address of token
@@ -61,8 +70,18 @@ interface ICompounder {
         @param rewardConversion true - take token0 as the caller fee, false - take token1 as the caller fee
         @param doSwap true - caller incurs the extra gas cost for 2% rewards of their selected token fee, false - caller spends less gas but gets 1.6% rewards of their specified token
     */
+    struct SwapCallbackData {
+        bytes path;
+        address payer;
+    }
 
-     struct SwapParams {
+    struct PoolKey {
+        address token0;
+        address token1;
+        uint24 fee;
+    }
+
+    struct SwapParams {
         address token0;
         address token1;
         uint24 fee; 
@@ -77,6 +96,8 @@ interface ICompounder {
         uint256 amount1;
         uint256 excess0;
         uint256 excess1;
+        uint256 maxIncreaseLiqSlippage0;
+        uint256 maxIncreaseLiqSlippage1;
         address tokenOwner;
         address token0;
         address token1;
@@ -88,13 +109,12 @@ interface ICompounder {
     struct SwapState {
         uint256 positionAmount0;
         uint256 positionAmount1;
-        int24 tick;
-        uint160 sqrtPriceX96;
-        bool sell0;
         uint256 amountRatioX96;
         uint256 delta0;
         uint256 delta1;
         uint256 priceX96;
+        uint160 sqrtPriceX96;
+        int24 tick;
     }
 
     /**
