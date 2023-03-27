@@ -48,6 +48,9 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
     //if you compound a position that results in more than this, say 0.6% slippage, then the transaction will revert
     uint64 public constant override maxIncreaseLiqSlippage = 200;
     
+    uint160 private constant MIN_SQRT_RATIO_PLUS_ONE = 4295128740;
+    uint160 private constant MAX_SQRT_RATIO_MINUS_ONE = 1461446703485210103287273052203988822378723970341;
+
     // uniswap v3 components
     IUniswapV3Factory private immutable factory;
     INonfungiblePositionManager private immutable nonfungiblePositionManager;
@@ -62,7 +65,7 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
         swapRouter = _swapRouter;
     }
 
-    event Compound(uint256 tokenId, uint256 fee0, uint256 fee1, uint256 compounded0, uint256 compounded1, uint256 liqAdded); 
+    event Compound(uint256 tokenId, uint256 fee0, uint256 fee1); 
     
     /**
      * @notice Compounds uniswapV3 fees for a given NFT (anyone can call this and gets a percentage of the fees)
@@ -70,25 +73,31 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
      * @param paidIn0 true - take token0 as the caller fee, false - take token1 as the caller fee
      * @return fee0 Amount of token0 caller recieves
      * @return fee1 Amount of token1 caller recieves
-     * @return compounded0 Amount of token0 that was compounded
-     * @return compounded1 Amount of token1 that was compounded
-     * @dev AutoCompound25a502142c1769f58abaabfe4f9f4e8b89d24513 saves 70 gas (optimized function selector)
+     * @dev 
      */
     function compound(uint256 tokenId, bool paidIn0) 
         override
         external
-        returns (uint256 fee0, uint256 fee1, uint256 compounded0, uint256 compounded1, uint256 liqAdded) 
+        returns (uint256 fee0, uint256 fee1) 
     {   
-        CompoundState memory state;
-        
-        state.tokenOwner = nonfungiblePositionManager.ownerOf(tokenId);
+        CompoundState memory state = CompoundState({
+            amount0: 0,
+            amount1: 0,
+            maxIncreaseLiqSlippage0: 0,
+            maxIncreaseLiqSlippage1: 0,
+            token0: address(0),
+            token1: address(0),
+            fee: 0,
+            tickLower: 0,
+            tickUpper: 0
+        });
 
         // collect fees
         (state.amount0, state.amount1) = nonfungiblePositionManager.collect(
             INonfungiblePositionManager.CollectParams(tokenId, address(this), type(uint128).max, type(uint128).max)
         );
 
-        require(state.amount0 > 0 || state.amount1 > 0, "0claim");
+        require(state.amount0 > 0 && state.amount1 > 0, "0claim");
 
         (, , state.token0, state.token1, state.fee, state.tickLower, state.tickUpper, , , , , ) = 
         nonfungiblePositionManager.positions(tokenId);
@@ -97,7 +106,7 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
 
         state.maxIncreaseLiqSlippage0 = state.amount0 / maxIncreaseLiqSlippage;
         state.maxIncreaseLiqSlippage1 = state.amount1 / maxIncreaseLiqSlippage;
-        
+
         //caller earns 1/40th of their token of choice
         if (paidIn0) {
             fee0 = state.amount0 / grossCallerReward; 
@@ -105,7 +114,6 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
         } else {
             fee1 = state.amount1 / grossCallerReward;
             state.amount1 = state.amount1.sub(fee1);
-
         }
 
         SwapParams memory swapParams = SwapParams(
@@ -121,11 +129,13 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
         (state.amount0, state.amount1) = 
             _swapToPriceRatio(swapParams); //returns amount of 0 and 1 after swapping
 
+        uint256 compounded0;
+        uint256 compounded1;
         // deposit liquidity into tokenId
         //sometimes this will accrue slippage, and not all of the fees will be compounded. this is because the calculations for state.amount0 and state.amount1
         //are based upon the current price ratio ratio of liquidity in the position, and both will change after the swap is made. However, this "slippage" is often negligible, and will be credited to the caller
         if (state.amount0 > 0 || state.amount1 > 0) {
-            (liqAdded, compounded0, compounded1) = nonfungiblePositionManager.increaseLiquidity(
+            (, compounded0, compounded1) = nonfungiblePositionManager.increaseLiquidity(
                 INonfungiblePositionManager.IncreaseLiquidityParams(
                     tokenId,
                     state.amount0,
@@ -140,7 +150,6 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
         require(state.maxIncreaseLiqSlippage0 > state.amount0 - compounded0, "slippageExceeded0");
         require(state.maxIncreaseLiqSlippage1 > state.amount1 - compounded1, "slippageExceeded1");
 
-
         if (paidIn0) {
             fee0 += state.amount0 - compounded0; //cannot underflow because state.amount0 >= compounded0
             _increaseBalanceCaller(msg.sender, state.token0, fee0);
@@ -149,7 +158,7 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
             _increaseBalanceCaller(msg.sender, state.token1, fee1);
         }
         
-        emit Compound(tokenId, fee0, fee1, compounded0, compounded1, liqAdded);
+        emit Compound(tokenId, fee0, fee1);
     }
 
     /**
@@ -210,7 +219,17 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
         private 
         returns (uint256 amount0, uint256 amount1) 
     {    
-        SwapState memory state;
+        //initalize memory variables
+        SwapState memory state = SwapState({
+            positionAmount0: 0,
+            positionAmount1: 0,
+            amountRatioX96: 0,
+            delta0: 0,
+            delta1: 0,
+            priceX96: 0,
+            sqrtPriceX96: 0,
+            tick: 0
+        });
 
         //initalize return variables
         amount0 = params.amount0;
@@ -271,7 +290,7 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
                 address(this),
                 true,
                 toInt256(state.delta0),
-                4295128740, //equal to TickMath.MIN_SQRT_RATIO + 1
+                MIN_SQRT_RATIO_PLUS_ONE,
                 abi.encode(poolKey)
             );
             
@@ -284,7 +303,7 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
                 address(this),
                 false,
                 toInt256(state.delta1),
-                1461446703485210103287273052203988822378723970341, //equal to TickMath.MAX_SQRT_RATIO - 1
+                MAX_SQRT_RATIO_MINUS_ONE,
                 abi.encode(poolKey)
             );
 
@@ -297,14 +316,12 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
     }
 
     function _checkApprovals(IERC20 token0, IERC20 token1) private {
-        // approve tokens once if not yet approved
-        uint256 allowance0 = token0.allowance(address(this), address(nonfungiblePositionManager));
-        if (allowance0 == 0) {
-            IERC20(token0).approve(address(nonfungiblePositionManager), type(uint256).max);
+        if (token0.allowance(address(this), address(nonfungiblePositionManager)) == 0) {
+            SafeERC20.safeApprove(token0, address(nonfungiblePositionManager), type(uint256).max);
         }
-        uint256 allowance1 = token1.allowance(address(this), address(nonfungiblePositionManager));
-        if (allowance1 == 0) {
-            IERC20(token1).approve(address(nonfungiblePositionManager), type(uint256).max);
+
+        if (token1.allowance(address(this), address(nonfungiblePositionManager)) == 0) {
+            SafeERC20.safeApprove(token1, address(nonfungiblePositionManager), type(uint256).max);
         }
     }
 
@@ -314,8 +331,8 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
         int256 amount1Delta,
         bytes calldata data //data is abi encoded PoolKey
     ) external override {
-        PoolKey memory poolkey = abi.decode(data, (PoolKey));
 
+        PoolKey memory poolkey = abi.decode(data, (PoolKey));
 
         address pool = address(
             uint256(
@@ -331,9 +348,9 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
         );
 
         require(msg.sender == pool);
-
-        if (amount0Delta > 0) IERC20(poolkey.token0).safeTransfer(msg.sender, uint256(amount0Delta));
-        if (amount1Delta > 0) IERC20(poolkey.token1).safeTransfer(msg.sender, uint256(amount1Delta));
+        
+        if (amount0Delta > 0) SafeERC20.safeTransfer(IERC20(poolkey.token0), msg.sender, uint256(amount0Delta));
+        if (amount1Delta > 0) SafeERC20.safeTransfer(IERC20(poolkey.token1), msg.sender, uint256(amount1Delta));
     }
 
     /// @dev this function should be called by compounding bots on L2 chains only to minimize gas costs.

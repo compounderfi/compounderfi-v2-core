@@ -65,7 +65,7 @@ interface ICompounder {
     function withdrawBalanceProtocol(address tokenAddress, address to) external;
     
     /**  
-        @notice the parameters for the autoCompound function
+        @notice the parameters for the compound function
         @param tokenId the tokenId being selected to compound
         @param rewardConversion true - take token0 as the caller fee, false - take token1 as the caller fee
         @param doSwap true - caller incurs the extra gas cost for 2% rewards of their selected token fee, false - caller spends less gas but gets 1.6% rewards of their specified token
@@ -94,11 +94,8 @@ interface ICompounder {
     struct CompoundState {
         uint256 amount0;
         uint256 amount1;
-        uint256 excess0;
-        uint256 excess1;
         uint256 maxIncreaseLiqSlippage0;
         uint256 maxIncreaseLiqSlippage1;
-        address tokenOwner;
         address token0;
         address token1;
         uint24 fee;
@@ -123,10 +120,8 @@ interface ICompounder {
      * @param paidIn0 true - take token0 as the caller fee, false - take token1 as the caller fee
      * @return fee0 Amount of token0 caller recieves
      * @return fee1 Amount of token1 caller recieves
-     * @return compounded0 Amount of token0 that was compounded
-     * @return compounded1 Amount of token1 that was compounded
-     * @dev AutoCompound25a502142c1769f58abaabfe4f9f4e8b89d24513 saves 70 gas (optimized function selector)
+     * @dev 
      */
-    function compound(uint256 tokenId, bool paidIn0) external returns (uint256 fee0, uint256 fee1, uint256 compounded0, uint256 compounded1, uint256 liqadded);
+    function compound(uint256 tokenId, bool paidIn0) external returns (uint256 fee0, uint256 fee1);
 
 }

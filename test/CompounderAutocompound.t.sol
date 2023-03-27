@@ -41,8 +41,6 @@ contract CompounderTest is Test {
     struct MeasurementsAfter {
         uint256 fee0;
         uint256 fee1;
-        uint256 compounded0;
-        uint256 compounded1;
         uint256 amount0after;
         uint256 amount1after;
         uint256 liqcompounded;
@@ -54,17 +52,15 @@ contract CompounderTest is Test {
         IUniswapV3Pool pool;
     }
     
-     //uint256 tokenId, bool paidInToken0
-    function testPosition() public {
+    
+    //uint256 tokenId, bool paidInToken0
+    function testPosition(uint256 tokenId, bool paidInToken0) public {
         
-        uint256 tokenId = 473036;
-        bool paidInToken0 = true;
         
-        /*
         uint256 NFPMsupply = nonfungiblePositionManager.totalSupply();
         tokenId = bound(tokenId, 420000, NFPMsupply);
         require(tokenId >= 420000 && tokenId < NFPMsupply);
-        */
+        
         try nonfungiblePositionManager.ownerOf(tokenId) returns (address owner) {
             startHoax(owner); //make owner the sender
 
@@ -82,7 +78,7 @@ contract CompounderTest is Test {
             nonfungiblePositionManager.approve(address(compounder), tokenId);
 
             //if nothing to compound then revert
-            if (before.unclaimed0 == 0 && before.unclaimed1 == 0) {
+            if (before.unclaimed0 == 0 || before.unclaimed1 == 0) {
                 vm.expectRevert("0claim");
                 compounder.compound(tokenId, paidInToken0);
             } else {//there's enough to compound
@@ -91,15 +87,12 @@ contract CompounderTest is Test {
                 before.token0balancebefore = compounder.callerBalances(address(this), data.token0);
                 before.token1balancebefore = compounder.callerBalances(address(this), data.token1);
 
-                //(,int24 tickb,,,,,) = data.pool.slot0();
+
                 //see what compounder returns after compound
-                (afterComp.fee0, afterComp.fee1, afterComp.compounded0, afterComp.compounded1, afterComp.liqcompounded) 
+                (afterComp.fee0, afterComp.fee1) 
                 = compounder.compound(tokenId, paidInToken0);
 
-                //(,int24 ticka,,,,,) = data.pool.slot0();
 
-                //console.logInt(int(tickb));
-                //console.logInt(int(ticka));
 
                 (, , , , , , , uint128 liquidityafter, , , , ) = nonfungiblePositionManager.positions(tokenId);
 
@@ -117,7 +110,7 @@ contract CompounderTest is Test {
                 
                 vm.revertTo(snapshot);
 
-                assertEq(afterComp.liqcompounded, liquidityafter - before.liquidity, "liquidity actually added");
+                //assertEq(afterComp.liqcompounded, liquidityafter - before.liquidity, "liquidity actually added");
 
                 //assures EOA got paid as they should've
                 if (paidInToken0) {
@@ -155,11 +148,11 @@ contract CompounderTest is Test {
 
     }
     
-/* \\
+    /*
     function testWithdraw(uint256 tokenId, uint256 balance) public {
         uint256 NFPMsupply = nonfungiblePositionManager.totalSupply();
-        tokenId = bound(tokenId, 0, NFPMsupply);
-        require(tokenId >= 0 && tokenId < NFPMsupply);
+        tokenId = bound(tokenId, 420000, NFPMsupply);
+        require(tokenId >= 420000 && tokenId < NFPMsupply);
         
         (, , address token0, address token1, , , , , , , , ) = nonfungiblePositionManager.positions(tokenId);
         
@@ -188,8 +181,8 @@ contract CompounderTest is Test {
         assertEq(IERC20(token0).balanceOf(ownableCompounder.owner()), protocolBalBefore + protocolCut);
 
         
-    } */
-
+    }
+    */
     function _takeBeforeMeasurements(uint256 tokenId) private returns(uint128 liquiditybefore, uint256 unclaimed0, uint256 unclaimed1, uint256 amount0before, uint256 amount1before, address token0, address token1, IUniswapV3Pool pool) {
         uint256 snapshot = vm.snapshot();
 
