@@ -92,25 +92,29 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
             tickUpper: 0
         });
 
-        // collect fees
+        // collect fees from the position
         (state.amount0, state.amount1) = nonfungiblePositionManager.collect(
             INonfungiblePositionManager.CollectParams(tokenId, address(this), type(uint128).max, type(uint128).max)
         );
 
+        // ensure that there are fees to compound
         require(state.amount0 > 0 && state.amount1 > 0, "0claim");
 
+        // get the position's details - information needed to compound
         (, , state.token0, state.token1, state.fee, state.tickLower, state.tickUpper, , , , , ) = 
-        nonfungiblePositionManager.positions(tokenId);
+            nonfungiblePositionManager.positions(tokenId);
 
+        //check the approvals for the tokens
         _checkApprovals(IERC20(state.token0), IERC20(state.token1));
 
-        state.maxIncreaseLiqSlippage0 = state.amount0 / maxIncreaseLiqSlippage;
-        state.maxIncreaseLiqSlippage1 = state.amount1 / maxIncreaseLiqSlippage;
+        //get the max slippage allowed for the position - read more about slippage later
+        state.maxIncreaseLiqSlippage0 = state.amount0 / maxIncreaseLiqSlippage; // 1/200th of amount0
+        state.maxIncreaseLiqSlippage1 = state.amount1 / maxIncreaseLiqSlippage; // 1/200th of amount1
 
         //caller earns 1/40th of their token of choice
         if (paidIn0) {
-            fee0 = state.amount0 / grossCallerReward; 
-            state.amount0 = state.amount0.sub(fee0);
+            fee0 = state.amount0 / grossCallerReward;
+            state.amount0 = state.amount0.sub(fee0); //reduce the amount that is available to be compounded by the caller reward
         } else {
             fee1 = state.amount1 / grossCallerReward;
             state.amount1 = state.amount1.sub(fee1);
@@ -126,35 +130,39 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
             state.amount1
         );
 
+        //decide which token to swap to, and how much of each token to swap, and then do the swap
         (state.amount0, state.amount1) = 
             _swapToPriceRatio(swapParams); //returns amount of 0 and 1 after swapping
 
-        uint256 compounded0;
-        uint256 compounded1;
         // deposit liquidity into tokenId
-        //sometimes this will accrue slippage, and not all of the fees will be compounded. this is because the calculations for state.amount0 and state.amount1
-        //are based upon the current price ratio ratio of liquidity in the position, and both will change after the swap is made. However, this "slippage" is often negligible, and will be credited to the caller
-        if (state.amount0 > 0 || state.amount1 > 0) {
-            (, compounded0, compounded1) = nonfungiblePositionManager.increaseLiquidity(
-                INonfungiblePositionManager.IncreaseLiquidityParams(
-                    tokenId,
-                    state.amount0,
-                    state.amount1,
-                    0,
-                    0,
-                    block.timestamp
-                )
-            );
-        }
+        //sometimes increasing liquidity will accrue slippage, and not all of the fees will be compounded (but almost all of it will be).
+        //this is because the calculations for state.amount0 and state.amount1
+        //are based upon the current price ratio ratio of liquidity in the position, and both will change after the swap is made. However, this "slippage" is often negligible, and will be credited to the caller if that is the token they desire
+        (, uint256 compounded0, uint256 compounded1) = nonfungiblePositionManager.increaseLiquidity(
+            INonfungiblePositionManager.IncreaseLiquidityParams(
+                tokenId,
+                state.amount0,
+                state.amount1,
+                0,
+                0,
+                block.timestamp
+            )
+        );
+        
+        //calculate slippages
+        uint256 slippage0 = state.amount0 - compounded0;
+        uint256 slippage1 = state.amount1 - compounded1;
 
-        require(state.maxIncreaseLiqSlippage0 > state.amount0 - compounded0, "slippageExceeded0");
-        require(state.maxIncreaseLiqSlippage1 > state.amount1 - compounded1, "slippageExceeded1");
+        //check that slippage is not too high
+        require(state.maxIncreaseLiqSlippage0 > slippage0, "slippageExceeded0");
+        require(state.maxIncreaseLiqSlippage1 > slippage1, "slippageExceeded1");
 
+        //credit caller with slippage, and the fees
         if (paidIn0) {
-            fee0 += state.amount0 - compounded0; //cannot underflow because state.amount0 >= compounded0
+            fee0 += slippage0;
             _increaseBalanceCaller(msg.sender, state.token0, fee0);
         } else {
-            fee1 += state.amount1 - compounded1; 
+            fee1 += slippage1; 
             _increaseBalanceCaller(msg.sender, state.token1, fee1);
         }
         
@@ -235,10 +243,12 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
         amount0 = params.amount0;
         amount1 = params.amount1;
         
-        // get price
+        // get pool
         IUniswapV3Pool pool = IUniswapV3Pool(factory.getPool(params.token0, params.token1, params.fee));
         
+        //get pool variables
         (state.sqrtPriceX96,state.tick,,,,,) = pool.slot0();
+
         //even though we're swapping, we don't need TWAP protection
         
         //why it is not an issue:
@@ -246,9 +256,9 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
         // as it will be compounded efficiently. less amount in the swap -> lower price impact, generally be unprofitable for an attacker
         // * Although is possible to compound multiple positions in the same transaction, sandwich all of those transactions together, and have a greater price impact as a result
         // even if a position has a large enough amount of fees to cause price impact, it is rare that the other positions in the same pool will also have enough to cause a compounding effect on the price of the pool
-        // * Users tend to gravitate towards adding liquidity to pools with a little liquidity 
+        // * Users tend to gravitate towards adding liquidity to pools with a lot of liquidity 
         // * Users who provide meaningful % of the liquidity to small pools tend not to do so on ethereum, but chains with lower gas fees
-        // Lower gas fees -> less amount needed to compound with.
+        // Lower gas fees -> less amount needed to compound with -> less price impact -> less likely to be profitable for an attacker
         
 
         // calculate how much of the position needs to be converted to the other token
@@ -264,13 +274,17 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
                                                             TickMath.getSqrtRatioAtTick(params.tickUpper), 
                                                             Q96);
                                                             
-
+            //calculate the ratio of token0 to token1 in the UniswapV3 position
             state.amountRatioX96 = FullMath.mulDiv(state.positionAmount0, Q96, state.positionAmount1);
+
+            //calculate the price of token0 to token1 in the UniswapV3 position
             uint256 amount1as0X96 = state.amountRatioX96.mul(amount1);
             uint256 amount0as0X96 = amount0.mul(Q96);
             
+            //Price as a X96 number
             state.priceX96 = FullMath.mulDiv(state.sqrtPriceX96, state.sqrtPriceX96, Q96);
 
+            //determine whether to swap token0 to token1 or token1 to token0
             if (amount1as0X96 < amount0as0X96) {
                 //swap token0 for token1
                 //how much of token0 to swap is state.delta0
@@ -285,7 +299,7 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
 
         PoolKey memory poolKey = PoolKey(params.token0, params.token1, params.fee);
         if (state.delta0 > 0) {
-            
+            //see uniswapV3SwapCallback
             (, int256 amount1Out) = pool.swap(
                 address(this),
                 true,
@@ -314,12 +328,15 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
         }
         
     }
-
+    // @dev Checks if the contract has approval to spend the tokens.
+    // @dev If not it will approve the contract to spend the tokens.
     function _checkApprovals(IERC20 token0, IERC20 token1) private {
+        //safeApprove to support tokens like USDT
         if (token0.allowance(address(this), address(nonfungiblePositionManager)) == 0) {
+            //safeApprove is slightly modified to reduce gas
+            //Since this function already has a check for allowance, the check in safeApprove is redundant and was editted out
             SafeERC20.safeApprove(token0, address(nonfungiblePositionManager), type(uint256).max);
         }
-
         if (token1.allowance(address(this), address(nonfungiblePositionManager)) == 0) {
             SafeERC20.safeApprove(token1, address(nonfungiblePositionManager), type(uint256).max);
         }
@@ -331,9 +348,9 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
         int256 amount1Delta,
         bytes calldata data //data is abi encoded PoolKey
     ) external override {
-
         PoolKey memory poolkey = abi.decode(data, (PoolKey));
-
+        
+        //guarentees that the sender is the pool that was swapped with
         address pool = address(
             uint256(
                 keccak256(
