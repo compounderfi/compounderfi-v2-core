@@ -179,11 +179,7 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
     function withdrawBalanceCaller(address tokenAddress, address to) external override nonReentrant {
         uint256 amount = callerBalances[msg.sender][tokenAddress];
         require(amount > 0, "amount==0");
-        _withdrawBalanceInternalCaller(tokenAddress, to, amount);
-    }
-
-    //for caller only
-    function _withdrawBalanceInternalCaller(address tokenAddress, address to, uint256 amount) private {
+        
         callerBalances[msg.sender][tokenAddress] = 0;
 
         uint256 protocolFees = amount.div(protocolReward);
@@ -191,7 +187,7 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
 
         SafeERC20.safeTransfer(IERC20(tokenAddress), to, callerFees);
         
-        _increaseBalanceProtocol(tokenAddress, protocolFees);
+        protocolBalances[tokenAddress] = protocolBalances[tokenAddress].add(protocolFees);
     }
 
     //for caller only
@@ -203,23 +199,11 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
 
     //for owner only
     function withdrawBalanceProtocol(address tokenAddress, address to) external override onlyOwner nonReentrant {
-        uint256 amount = callerBalances[msg.sender][tokenAddress];
+        uint256 amount = protocolBalances[tokenAddress];
         require(amount > 0, "amount==0");
-        _withdrawBalanceInternalProtocol(tokenAddress, to, amount);
-    }
 
-    //for owner only
-    function _withdrawBalanceInternalProtocol(address tokenAddress, address to, uint256 amount) private {
         protocolBalances[tokenAddress] = 0;
-
         SafeERC20.safeTransfer(IERC20(tokenAddress), to, amount);
-    }
-    
-    //for owner only
-    function _increaseBalanceProtocol(address tokenAddress, uint256 amount) private {
-        if(amount > 0) {
-            protocolBalances[tokenAddress] = protocolBalances[tokenAddress].add(amount);
-        }
     }
 
     // checks oracle for fair price - swaps to position ratio (considering estimated reward) - calculates max amount to be added
