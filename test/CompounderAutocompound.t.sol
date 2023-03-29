@@ -44,6 +44,8 @@ contract CompounderTest is Test {
         uint256 amount0after;
         uint256 amount1after;
         uint256 liqcompounded;
+        uint256 slippage0;
+        uint256 slippage1;
     }
 
     struct PositionData {
@@ -55,11 +57,14 @@ contract CompounderTest is Test {
     
     //uint256 tokenId, bool paidInToken0
     function testPosition(uint256 tokenId, bool paidInToken0) public {
-        
+        /*
+        uint256 tokenId = 320731;
+        bool paidInToken0 = true;
+        */
         
         uint256 NFPMsupply = nonfungiblePositionManager.totalSupply();
-        tokenId = bound(tokenId, 400000, NFPMsupply);
-        require(tokenId >= 400000 && tokenId < NFPMsupply);
+        tokenId = bound(tokenId, 375000, NFPMsupply);
+        require(tokenId >= 375000 && tokenId < NFPMsupply);
         
         try nonfungiblePositionManager.ownerOf(tokenId) returns (address positionOwner) {
             startHoax(positionOwner); //make owner the sender
@@ -89,11 +94,9 @@ contract CompounderTest is Test {
 
 
                 //see what compounder returns after compound
-                (afterComp.fee0, afterComp.fee1) 
+                (afterComp.fee0, afterComp.fee1, afterComp.slippage0, afterComp.slippage1) 
                 = compounder.compound(tokenId, paidInToken0);
-
-
-
+                
                 (, , , , , , , uint128 liquidityafter, , , , ) = nonfungiblePositionManager.positions(tokenId);
 
                 uint256 snapshot = vm.snapshot();
@@ -111,11 +114,26 @@ contract CompounderTest is Test {
                 vm.revertTo(snapshot);
 
                 //assertEq(afterComp.liqcompounded, liquidityafter - before.liquidity, "liquidity actually added");
-
+                //console.log(afterComp.slippage0 * 100000000);
+                //console.log(afterComp.slippage1 * 100000000);
                 //assures EOA got paid as they should've
+
+                /*
+                vm.writeLine("./output.txt", uint2str(tokenId));
+                vm.writeLine("./output.txt", "slippage0");
+                */
+                if ((( afterComp.slippage0 * 100000000) / before.unclaimed0) != 0)
+                vm.writeLine("./output.txt", uint2str(( afterComp.slippage0 * 100000000) / before.unclaimed0));
+                /*
+                vm.writeLine("./output.txt", "slippage1");
+                */
+                if ((( afterComp.slippage1 * 100000000) / before.unclaimed1) != 0)
+                vm.writeLine("./output.txt", uint2str(( afterComp.slippage1 * 100000000) / before.unclaimed1));
+                /*
+                vm.writeLine("./output.txt", "-----------");
+                */
                 if (paidInToken0) {
-                    vm.writeLine("./output.txt", uint2str((afterComp.fee0 * 10000) / before.unclaimed0));
-                    vm.writeLine("./output.txt", uint2str(tokenId));
+                    //vm.writeLine("./output.txt", uint2str(tokenId));
 
                     assertGe(afterComp.fee0, before.unclaimed0 / compounder.grossCallerReward(), "fee0 should be greater than 2.5%");
                     assertLe(afterComp.fee0, before.unclaimed0 / 33, "fee0 should be less than 3%");
@@ -124,16 +142,21 @@ contract CompounderTest is Test {
 
                     //determine how much of token0 the positionOwner already had
                     uint256 positionOwnerToken0before = IERC20(data.token0).balanceOf(positionOwner);
-
+                    uint256 balanceCaller0Before = compounder.callerBalances(positionOwner, data.token0);
+                    uint256 balanceCaller1Before = compounder.callerBalances(positionOwner, data.token1);
                     compounder.withdrawBalanceCaller(data.token0, positionOwner);
 
                     uint256 positionOwnerToken0After = IERC20(data.token0).balanceOf(positionOwner);
+                    uint256 balanceCaller0After = compounder.callerBalances(positionOwner, data.token0);
+                    uint256 balanceCaller1After = compounder.callerBalances(positionOwner, data.token1);
                     uint256 gain0 = positionOwnerToken0After - positionOwnerToken0before;
                     uint256 protocolReward = afterComp.fee0 / compounder.protocolReward();
 
+                    assertEq(balanceCaller1Before - balanceCaller1After, 0, "balanceCaller1 should be equal to 0");
+                    assertEq(balanceCaller0Before - balanceCaller0After, afterComp.fee0, "balanceCaller0 should be equal to fee0");
                     assertEq(gain0, afterComp.fee0 - protocolReward, "gain0 should be equal to fee0 - protocolReward");
                     assertEq(compounder.protocolBalances(data.token0), afterComp.fee0 - gain0, "protocolBalances should be equal to fee0 - gain0");
-
+                    
                     //prank the owner of the contract
                     vm.stopPrank();
                     startHoax(compounder.owner());
@@ -144,8 +167,7 @@ contract CompounderTest is Test {
                     assertEq(protocolOwnerToken0after - protocolOwnerToken0before, protocolReward, "protocolOwner should get protocolReward");
 
                 } else {
-                    vm.writeLine("./output.txt", uint2str((afterComp.fee1 * 10000) / before.unclaimed1));
-                    vm.writeLine("./output.txt", uint2str(tokenId));
+                    //vm.writeLine("./output.txt", uint2str(tokenId));
 
                     assertGe(afterComp.fee1, before.unclaimed1 / compounder.grossCallerReward(), "fee1 should be greater than 2.5%");
                     assertLe(afterComp.fee1, before.unclaimed1 / 33, "fee1 should be less than 3%");
@@ -154,13 +176,18 @@ contract CompounderTest is Test {
                     
                     //determine how much of token1 the positionOwner already had
                     uint256 positionOwnerToken1before = IERC20(data.token1).balanceOf(positionOwner);
-
+                    uint256 balanceCaller1Before = compounder.callerBalances(positionOwner, data.token1);
+                    uint256 balanceCaller0Before = compounder.callerBalances(positionOwner, data.token0);
                     compounder.withdrawBalanceCaller(data.token1, positionOwner);
 
                     uint256 positionOwnerToken1After = IERC20(data.token1).balanceOf(positionOwner);
+                    uint256 balanceCaller1After = compounder.callerBalances(positionOwner, data.token1);
+                    uint256 balanceCaller0After = compounder.callerBalances(positionOwner, data.token0);
                     uint256 gain1 = positionOwnerToken1After - positionOwnerToken1before;
                     uint256 protocolReward = afterComp.fee1 / compounder.protocolReward();
 
+                    assertEq(balanceCaller0Before - balanceCaller0After, 0, "balanceCaller0 should be equal to 0");
+                    assertEq(balanceCaller1Before - balanceCaller1After, afterComp.fee1, "balanceCaller1 should be equal to fee1");
                     assertEq(gain1, afterComp.fee1 - protocolReward, "gain1 should be equal to fee1 - protocolReward");
                     assertEq(compounder.protocolBalances(data.token1), afterComp.fee1 - gain1, "protocolBalances should be equal to fee1 - gain1");
 

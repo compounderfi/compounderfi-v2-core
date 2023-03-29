@@ -122,6 +122,6 @@ interface ICompounder {
      * @return fee1 Amount of token1 caller recieves
      * @dev 
      */
-    function compound(uint256 tokenId, bool paidIn0) external returns (uint256 fee0, uint256 fee1);
+    function compound(uint256 tokenId, bool paidIn0) external returns (uint256 fee0, uint256 fee1, uint256 slippage0, uint256 slippage1);
 
 }

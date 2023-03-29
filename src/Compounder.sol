@@ -15,7 +15,7 @@ import "./external/uniswap/v3-periphery/libraries/LiquidityAmounts.sol";
 import "./external/uniswap/v3-periphery/interfaces/INonfungiblePositionManager.sol";
 import "./external/uniswap/v3-core/interfaces/callback/IUniswapV3SwapCallback.sol";
 import "./ICompounder.sol";
-//import "forge-std/console.sol";
+import "forge-std/console.sol";
 
 /// @title Compounder, an automatic reinvesting tool for uniswap v3 positions
 /// @author kev1n
@@ -78,7 +78,7 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
     function compound(uint256 tokenId, bool paidIn0) 
         override
         external
-        returns (uint256 fee0, uint256 fee1) 
+        returns (uint256 fee0, uint256 fee1, uint256 slippage0, uint256 slippage1)
     {   
         CompoundState memory state = CompoundState({
             amount0: 0,
@@ -150,8 +150,8 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
         );
         
         //calculate slippages
-        uint256 slippage0 = state.amount0 - compounded0;
-        uint256 slippage1 = state.amount1 - compounded1;
+        slippage0 = state.amount0 - compounded0;
+        slippage1 = state.amount1 - compounded1;
 
         //check that slippage is not too high
         require(state.maxIncreaseLiqSlippage0 > slippage0, "slippageExceeded0");
@@ -263,17 +263,66 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
 
             //calculate the price of token0 to token1 in the UniswapV3 position
             uint256 amount1as0X96 = state.amountRatioX96.mul(amount1);
-            uint256 amount0as0X96 = amount0.mul(Q96);
+            uint256 amount0as0X96 = amount0.mul(Q96); 
             
-            //Price as a X96 number
-            state.priceX96 = FullMath.mulDiv(state.sqrtPriceX96, state.sqrtPriceX96, Q96);
-
             //determine whether to swap token0 to token1 or token1 to token0
             if (amount1as0X96 < amount0as0X96) {
+                //account for pool fees
+                if (params.fee == 10000) {
+                    //sqrt 1.01
+                    state.sqrtPriceX96 = (99498743710 * state.sqrtPriceX96) / 100000000000;
+                } else if (params.fee == 3000) {
+                    //sqrt 1.003
+                    state.sqrtPriceX96 = (99849887331 * state.sqrtPriceX96) / 100000000000;
+                } else if (params.fee == 500) {
+                    //sqrt 1.0005
+                    state.sqrtPriceX96 = (99974996874 * state.sqrtPriceX96) / 100000000000;
+                } else if (params.fee == 100) {
+                    //sqrt 1.0001
+                    state.sqrtPriceX96 = (99994999875 * state.sqrtPriceX96) / 100000000000;
+                } else {
+                
+                    //don't need overflow protection here because the max value for fee is 2^16
+                    //max value for base before sqrt is 1.065536e+14: 2^16*100000000+100000000000000
+                    //max value for base after sqrt is 10322480
+                    
+                    uint256 base = sqrt(100000000000000 - uint256(params.fee) * 100000000);
+                    state.sqrtPriceX96 = (uint160(base) * state.sqrtPriceX96) / 10000000;
+                }
+                
+                //Price as a X96 number
+                state.priceX96 = FullMath.mulDiv(state.sqrtPriceX96, state.sqrtPriceX96, Q96);
+
                 //swap token0 for token1
                 //how much of token0 to swap is state.delta0
                 state.delta0 = amount0as0X96.sub(amount1as0X96).div(FullMath.mulDiv(state.amountRatioX96, state.priceX96, Q96).add(Q96));
             } else {
+                //account for pool fees
+                if (params.fee == 10000) {
+                    //sqrt 1.01
+                    state.sqrtPriceX96 = (100498756211 * state.sqrtPriceX96) / 100000000000;
+                } else if (params.fee == 3000) {
+                    //sqrt 1.003
+                    state.sqrtPriceX96 = (100149887668 * state.sqrtPriceX96) / 100000000000;
+                } else if (params.fee == 500) {
+                    //sqrt 1.0005
+                    state.sqrtPriceX96 = (100024996876 * state.sqrtPriceX96) / 100000000000;
+                } else if (params.fee == 100) {
+                    //sqrt 1.0001
+                    state.sqrtPriceX96 = (100004999875 * state.sqrtPriceX96) / 100000000000;
+                } else {
+                
+                    //don't need overflow protection / muldiv here because the max value for fee is 2^16
+                    //max value for base before sqrt is 1.065536e+14: 2^16*100000000+100000000000000
+                    //max value for base after sqrt is 10322480
+                    
+                    uint256 base = sqrt(uint256(params.fee) * 100000000 + 100000000000000);
+                    state.sqrtPriceX96 = (uint160(base) * state.sqrtPriceX96) / 10000000;
+                }
+                
+                //Price as a X96 number
+                state.priceX96 = FullMath.mulDiv(state.sqrtPriceX96, state.sqrtPriceX96, Q96);
+
                 //swap token1 for token0
                 //how much of token1 to swap is state.delta1
                 state.delta1 = amount1as0X96.sub(amount0as0X96).div(state.amountRatioX96.add(Q192.div(state.priceX96)));
@@ -378,6 +427,19 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
         // Note: Unsafe cast below is okay because `type(int256).max` is guaranteed to be positive
         require(value <= uint256(type(int256).max), "SafeCast: value doesn't fit in an int256");
         return int256(value);
+    }
+
+    function sqrt(uint y) private pure returns (uint z) {
+        if (y > 3) {
+            z = y;
+            uint x = y / 2 + 1;
+            while (x < z) {
+                z = x;
+                x = (y / x + x) / 2;
+            }
+        } else if (y != 0) {
+            z = 1;
+        }
     }
 
 }
