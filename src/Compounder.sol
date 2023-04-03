@@ -78,7 +78,7 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
     function compound(uint256 tokenId, bool paidIn0) 
         override
         external
-        returns (uint256 fee0, uint256 fee1, uint256 slippage0, uint256 slippage1)
+        returns (uint256 fee0, uint256 fee1)
     {   
         CompoundState memory state = CompoundState({
             amount0: 0,
@@ -114,21 +114,21 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
         //caller earns 1/40th of their token of choice
         if (paidIn0) {
             fee0 = state.amount0 / grossCallerReward;
-            state.amount0 = state.amount0.sub(fee0); //reduce the amount that is available to be compounded by the caller reward
+            state.amount0 = state.amount0 - fee0; //reduce the amount that is available to be compounded by the caller reward
         } else {
             fee1 = state.amount1 / grossCallerReward;
-            state.amount1 = state.amount1.sub(fee1);
+            state.amount1 = state.amount1 - fee1;
         }
 
-        SwapParams memory swapParams = SwapParams(
-            state.token0, 
-            state.token1, 
-            state.fee, 
-            state.tickLower, 
-            state.tickUpper, 
-            state.amount0,
-            state.amount1
-        );
+        SwapParams memory swapParams = SwapParams({
+            amount0: state.amount0,
+            amount1: state.amount1,
+            token0: state.token0, 
+            token1: state.token1, 
+            fee: state.fee, 
+            tickLower: state.tickLower, 
+            tickUpper: state.tickUpper
+        });
 
         //decide which token to swap to, and how much of each token to swap, and then do the swap
         (state.amount0, state.amount1) = 
@@ -150,8 +150,8 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
         );
         
         //calculate slippages
-        slippage0 = state.amount0 - compounded0;
-        slippage1 = state.amount1 - compounded1;
+        uint256 slippage0 = state.amount0 - compounded0; //cannot underflow because state.amount0 >= compounded0
+        uint256 slippage1 = state.amount1 - compounded1; //cannot underflow because state.amount1 >= compounded1
 
         //check that slippage is not too high
         require(state.maxIncreaseLiqSlippage0 > slippage0, "slippageExceeded0");
@@ -269,16 +269,16 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
             if (amount1as0X96 < amount0as0X96) {
                 //account for pool fees
                 if (params.fee == 10000) {
-                    //sqrt 1.01
+                    //sqrt 0.99
                     state.sqrtPriceX96 = (99498743710 * state.sqrtPriceX96) / 100000000000;
                 } else if (params.fee == 3000) {
-                    //sqrt 1.003
+                    //sqrt 0.997
                     state.sqrtPriceX96 = (99849887331 * state.sqrtPriceX96) / 100000000000;
                 } else if (params.fee == 500) {
-                    //sqrt 1.0005
+                    //sqrt 0.9995
                     state.sqrtPriceX96 = (99974996874 * state.sqrtPriceX96) / 100000000000;
                 } else if (params.fee == 100) {
-                    //sqrt 1.0001
+                    //sqrt 0.9999
                     state.sqrtPriceX96 = (99994999875 * state.sqrtPriceX96) / 100000000000;
                 } else {
                 

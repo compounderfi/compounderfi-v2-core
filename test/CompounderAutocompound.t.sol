@@ -8,7 +8,6 @@ import "../src/external/uniswap/v3-periphery/interfaces/INonfungiblePositionMana
 import "../src/external/uniswap/v3-periphery/interfaces/ISwapRouter.sol";
 import "../src/Compounder.sol";
 import "../src/ICompounder.sol";
-import "../src//external/openzeppelin/access/Ownable.sol";
 
 contract CompounderTest is Test {
     using stdStorage for StdStorage;
@@ -94,7 +93,7 @@ contract CompounderTest is Test {
 
 
                 //see what compounder returns after compound
-                (afterComp.fee0, afterComp.fee1, afterComp.slippage0, afterComp.slippage1) 
+                (afterComp.fee0, afterComp.fee1) 
                 = compounder.compound(tokenId, paidInToken0);
                 
                 (, , , , , , , uint128 liquidityafter, , , , ) = nonfungiblePositionManager.positions(tokenId);
@@ -122,13 +121,13 @@ contract CompounderTest is Test {
                 vm.writeLine("./output.txt", uint2str(tokenId));
                 vm.writeLine("./output.txt", "slippage0");
                 */
-                if ((( afterComp.slippage0 * 100000000) / before.unclaimed0) != 0)
-                vm.writeLine("./output.txt", uint2str(( afterComp.slippage0 * 100000000) / before.unclaimed0));
+                //if ((( afterComp.slippage0 * 100000000) / before.unclaimed0) != 0)
+                //vm.writeLine("./output.txt", uint2str(( afterComp.slippage0 * 100000000) / before.unclaimed0));
                 /*
                 vm.writeLine("./output.txt", "slippage1");
                 */
-                if ((( afterComp.slippage1 * 100000000) / before.unclaimed1) != 0)
-                vm.writeLine("./output.txt", uint2str(( afterComp.slippage1 * 100000000) / before.unclaimed1));
+                //if ((( afterComp.slippage1 * 100000000) / before.unclaimed1) != 0)
+                //vm.writeLine("./output.txt", uint2str(( afterComp.slippage1 * 100000000) / before.unclaimed1));
                 /*
                 vm.writeLine("./output.txt", "-----------");
                 */

@@ -63,17 +63,6 @@ interface ICompounder {
      * @param to Address to send to
      */
     function withdrawBalanceProtocol(address tokenAddress, address to) external;
-    
-    /**  
-        @notice the parameters for the compound function
-        @param tokenId the tokenId being selected to compound
-        @param rewardConversion true - take token0 as the caller fee, false - take token1 as the caller fee
-        @param doSwap true - caller incurs the extra gas cost for 2% rewards of their selected token fee, false - caller spends less gas but gets 1.6% rewards of their specified token
-    */
-    struct SwapCallbackData {
-        bytes path;
-        address payer;
-    }
 
     struct PoolKey {
         address token0;
@@ -82,13 +71,13 @@ interface ICompounder {
     }
 
     struct SwapParams {
+        uint256 amount0;
+        uint256 amount1;
         address token0;
         address token1;
         uint24 fee; 
         int24 tickLower; 
         int24 tickUpper; 
-        uint256 amount0;
-        uint256 amount1;
     }
 
     struct CompoundState {
@@ -122,6 +111,6 @@ interface ICompounder {
      * @return fee1 Amount of token1 caller recieves
      * @dev 
      */
-    function compound(uint256 tokenId, bool paidIn0) external returns (uint256 fee0, uint256 fee1, uint256 slippage0, uint256 slippage1);
+    function compound(uint256 tokenId, bool paidIn0) external returns (uint256 fee0, uint256 fee1);
 
 }
