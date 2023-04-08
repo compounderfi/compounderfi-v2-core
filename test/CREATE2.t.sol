@@ -25,8 +25,8 @@ contract CREAT2TEST is Test {
 
     function getInitHash() public returns (bytes32) {
         bytes memory bytecode = type(Compounder).creationCode;
-        console.logBytes(bytecode);
-        return keccak256(abi.encodePacked(bytecode));
+        console.logBytes(abi.encodePacked(bytecode, abi.encode(factory, nonfungiblePositionManager, swapRouter)));
+        return keccak256(abi.encodePacked(bytecode, abi.encode(factory, nonfungiblePositionManager, swapRouter)));
     }
 
     function testInitHash() public {

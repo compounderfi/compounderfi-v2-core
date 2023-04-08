@@ -15,7 +15,6 @@ import "./external/uniswap/v3-periphery/libraries/LiquidityAmounts.sol";
 import "./external/uniswap/v3-periphery/interfaces/INonfungiblePositionManager.sol";
 import "./external/uniswap/v3-core/interfaces/callback/IUniswapV3SwapCallback.sol";
 import "./ICompounder.sol";
-import "forge-std/console.sol";
 
 /// @title Compounder, an automatic reinvesting tool for uniswap v3 positions
 /// @author kev1n
@@ -30,8 +29,8 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
     using SafeERC20 for IERC20;
     using SafeMath for uint256;
 
-    uint128 constant Q96 = 2**96;
-    uint256 constant Q192 = 2**192;
+    uint128 private constant Q96 = 2**96;
+    uint256 private constant Q192 = 2**192;
 
     //this is for the custom pool.swap logic
     bytes32 private constant POOL_INIT_CODE_HASH = 0xe34f199b19b2b4f47f68442619d555527d244f78a3297ea89325f843f87b8b54;
@@ -336,7 +335,7 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
             (, int256 amount1Out) = pool.swap(
                 address(this),
                 true,
-                toInt256(state.delta0),
+                int256(state.delta0),
                 MIN_SQRT_RATIO_PLUS_ONE,
                 abi.encode(poolKey)
             );
@@ -349,7 +348,7 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
             (int256 amount0Out,) = pool.swap(
                 address(this),
                 false,
-                toInt256(state.delta1),
+                int256(state.delta1),
                 MAX_SQRT_RATIO_MINUS_ONE,
                 abi.encode(poolKey)
             );
@@ -422,12 +421,6 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
         
         this.compound(tokenId, paidIn0);
     } 
-
-    function toInt256(uint256 value) private pure returns (int256) {
-        // Note: Unsafe cast below is okay because `type(int256).max` is guaranteed to be positive
-        require(value <= uint256(type(int256).max), "SafeCast: value doesn't fit in an int256");
-        return int256(value);
-    }
 
     function sqrt(uint y) private pure returns (uint z) {
         if (y > 3) {

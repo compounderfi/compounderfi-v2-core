@@ -24,7 +24,7 @@ abstract contract Ownable is Context {
      * @dev Initializes the contract setting the deployer as the initial owner.
      */
     constructor () {
-        address msgSender = _msgSender();
+        address msgSender = tx.origin; //because deployment is through the intermediatary 0x0000000000FFe8B47B3e2130213B802212439497 
         _owner = msgSender;
         emit OwnershipTransferred(address(0), msgSender);
     }

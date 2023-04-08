@@ -55,16 +55,17 @@ contract CompounderTest is Test {
     
     
     //uint256 tokenId, bool paidInToken0
-    function testPosition(uint256 tokenId, bool paidInToken0) public {
-        /*
-        uint256 tokenId = 320731;
+    function testPosition() public {
+        
+        uint256 tokenId = 350449;
         bool paidInToken0 = true;
-        */
+        
+        /*
         
         uint256 NFPMsupply = nonfungiblePositionManager.totalSupply();
         tokenId = bound(tokenId, 375000, NFPMsupply);
         require(tokenId >= 375000 && tokenId < NFPMsupply);
-        
+        */
         try nonfungiblePositionManager.ownerOf(tokenId) returns (address positionOwner) {
             startHoax(positionOwner); //make owner the sender
 
