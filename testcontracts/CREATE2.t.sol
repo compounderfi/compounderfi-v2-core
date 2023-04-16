@@ -18,15 +18,14 @@ contract CREAT2TEST is Test {
     function setUp() public {
         factory = IUniswapV3Factory(0x1F98431c8aD98523631AE4a59f267346ea31F984);
         nonfungiblePositionManager = INonfungiblePositionManager(0xC36442b4a4522E871399CD717aBDD847Ab11FE88);
-        swapRouter = ISwapRouter(0xE592427A0AEce92De3Edee1F18E0157C05861564);
 
-        reg = new Compounder(factory, nonfungiblePositionManager, swapRouter);
+        reg = new Compounder(factory, nonfungiblePositionManager);
     }
 
     function getInitHash() public returns (bytes32) {
         bytes memory bytecode = type(Compounder).creationCode;
-        console.logBytes(abi.encodePacked(bytecode, abi.encode(factory, nonfungiblePositionManager, swapRouter)));
-        return keccak256(abi.encodePacked(bytecode, abi.encode(factory, nonfungiblePositionManager, swapRouter)));
+        console.logBytes(abi.encodePacked(bytecode, abi.encode(factory, nonfungiblePositionManager)));
+        return keccak256(abi.encodePacked(bytecode, abi.encode(factory, nonfungiblePositionManager)));
     }
 
     function testInitHash() public {

@@ -5,15 +5,16 @@ pragma abicoder v2;
 import "../../../openzeppelin/token/ERC721/IERC721Metadata.sol";
 import "../../../openzeppelin/token/ERC721/IERC721Enumerable.sol";
 
-import "./IPoolInitializer.sol";
-import "./IERC721Permit.sol";
-import "./IPeripheryPayments.sol";
-import "./IPeripheryImmutableState.sol";
-import "../libraries/PoolAddress.sol";
+import './IPoolInitializer.sol';
+import './IERC721Permit.sol';
+import './IPeripheryPayments.sol';
+import './IPeripheryImmutableState.sol';
 
 /// @title Non-fungible token for positions
-/// @notice Wraps Uniswap V3 positions in a non-fungible token interface which allows for them to be transferred
+/// @notice Wraps Algebra positions in a non-fungible token interface which allows for them to be transferred
 /// and authorized.
+/// @dev Credit to Uniswap Labs under GPL-2.0-or-later license:
+/// https://github.com/Uniswap/v3-periphery
 interface INonfungiblePositionManager is
     IPoolInitializer,
     IPeripheryPayments,
@@ -26,15 +27,26 @@ interface INonfungiblePositionManager is
     /// @dev Also emitted when a token is minted
     /// @param tokenId The ID of the token for which liquidity was increased
     /// @param liquidity The amount by which liquidity for the NFT position was increased
+    /// @param actualLiquidity the actual liquidity that was added into a pool. Could differ from
+    /// _liquidity_ when using FeeOnTransfer tokens
     /// @param amount0 The amount of token0 that was paid for the increase in liquidity
     /// @param amount1 The amount of token1 that was paid for the increase in liquidity
-    event IncreaseLiquidity(uint256 indexed tokenId, uint128 liquidity, uint256 amount0, uint256 amount1);
+    event IncreaseLiquidity(
+        uint256 indexed tokenId,
+        uint128 liquidity,
+        uint128 actualLiquidity,
+        uint256 amount0,
+        uint256 amount1,
+        address pool
+    );
+
     /// @notice Emitted when liquidity is decreased for a position NFT
     /// @param tokenId The ID of the token for which liquidity was decreased
     /// @param liquidity The amount by which liquidity for the NFT position was decreased
     /// @param amount0 The amount of token0 that was accounted for the decrease in liquidity
     /// @param amount1 The amount of token1 that was accounted for the decrease in liquidity
     event DecreaseLiquidity(uint256 indexed tokenId, uint128 liquidity, uint256 amount0, uint256 amount1);
+
     /// @notice Emitted when tokens are collected for a position NFT
     /// @dev The amounts reported may not be exactly equivalent to the amounts transferred, due to rounding behavior
     /// @param tokenId The ID of the token for which underlying tokens were collected
@@ -43,6 +55,11 @@ interface INonfungiblePositionManager is
     /// @param amount1 The amount of token1 owed to the position that was collected
     event Collect(uint256 indexed tokenId, address recipient, uint256 amount0, uint256 amount1);
 
+    /// @notice Emitted if farming failed in call from NonfungiblePositionManager.
+    /// @dev Should never be emitted
+    /// @param tokenId The ID of corresponding token
+    event FarmingFailed(uint256 indexed tokenId);
+
     /// @notice Returns the position information associated with a given token ID.
     /// @dev Throws if the token ID is not valid.
     /// @param tokenId The ID of the token that represents the position
@@ -50,7 +67,6 @@ interface INonfungiblePositionManager is
     /// @return operator The address that is approved for spending
     /// @return token0 The address of the token0 for a specific pool
     /// @return token1 The address of the token1 for a specific pool
-    /// @return fee The fee associated with the pool
     /// @return tickLower The lower end of the tick range for the position
     /// @return tickUpper The higher end of the tick range for the position
     /// @return liquidity The liquidity of the position
@@ -58,15 +74,16 @@ interface INonfungiblePositionManager is
     /// @return feeGrowthInside1LastX128 The fee growth of token1 as of the last action on the individual position
     /// @return tokensOwed0 The uncollected amount of token0 owed to the position as of the last computation
     /// @return tokensOwed1 The uncollected amount of token1 owed to the position as of the last computation
-    function positions(uint256 tokenId)
+    function positions(
+        uint256 tokenId
+    )
         external
         view
         returns (
-            uint96 nonce,
+            uint88 nonce,
             address operator,
             address token0,
             address token1,
-            uint24 fee,
             int24 tickLower,
             int24 tickUpper,
             uint128 liquidity,
@@ -79,7 +96,6 @@ interface INonfungiblePositionManager is
     struct MintParams {
         address token0;
         address token1;
-        uint24 fee;
         int24 tickLower;
         int24 tickUpper;
         uint256 amount0Desired;
@@ -98,15 +114,9 @@ interface INonfungiblePositionManager is
     /// @return liquidity The amount of liquidity for this position
     /// @return amount0 The amount of token0
     /// @return amount1 The amount of token1
-    function mint(MintParams calldata params)
-        external
-        payable
-        returns (
-            uint256 tokenId,
-            uint128 liquidity,
-            uint256 amount0,
-            uint256 amount1
-        );
+    function mint(
+        MintParams calldata params
+    ) external payable returns (uint256 tokenId, uint128 liquidity, uint256 amount0, uint256 amount1);
 
     struct IncreaseLiquidityParams {
         uint256 tokenId;
@@ -125,16 +135,11 @@ interface INonfungiblePositionManager is
     /// amount1Min The minimum amount of token1 to spend, which serves as a slippage check,
     /// deadline The time by which the transaction must be included to effect the change
     /// @return liquidity The new liquidity amount as a result of the increase
-    /// @return amount0 The amount of token0 to acheive resulting liquidity
-    /// @return amount1 The amount of token1 to acheive resulting liquidity
-    function increaseLiquidity(IncreaseLiquidityParams calldata params)
-        external
-        payable
-        returns (
-            uint128 liquidity,
-            uint256 amount0,
-            uint256 amount1
-        );
+    /// @return amount0 The amount of token0 to achieve resulting liquidity
+    /// @return amount1 The amount of token1 to achieve resulting liquidity
+    function increaseLiquidity(
+        IncreaseLiquidityParams calldata params
+    ) external payable returns (uint128 liquidity, uint256 amount0, uint256 amount1);
 
     struct DecreaseLiquidityParams {
         uint256 tokenId;
@@ -152,10 +157,9 @@ interface INonfungiblePositionManager is
     /// deadline The time by which the transaction must be included to effect the change
     /// @return amount0 The amount of token0 accounted to the position's tokens owed
     /// @return amount1 The amount of token1 accounted to the position's tokens owed
-    function decreaseLiquidity(DecreaseLiquidityParams calldata params)
-        external
-        payable
-        returns (uint256 amount0, uint256 amount1);
+    function decreaseLiquidity(
+        DecreaseLiquidityParams calldata params
+    ) external payable returns (uint256 amount0, uint256 amount1);
 
     struct CollectParams {
         uint256 tokenId;
@@ -177,4 +181,20 @@ interface INonfungiblePositionManager is
     /// must be collected first.
     /// @param tokenId The ID of the token that is being burned
     function burn(uint256 tokenId) external payable;
+
+    /// @notice Changes approval of token ID for farming.
+    /// @param tokenId The ID of the token that is being approved / unapproved
+    /// @param approve New status of approval
+    function approveForFarming(uint256 tokenId, bool approve) external payable;
+
+    /// @notice Changes farming status of token to 'farmed' or 'not farmed'
+    /// @dev can be called only by farmingCenter
+    /// @param tokenId tokenId The ID of the token
+    /// @param tokenId isFarmed The new status
+    function switchFarmingStatus(uint256 tokenId, bool isFarmed) external;
+
+    /// @notice Changes address of farmingCenter
+    /// @dev can be called only by factory owner or NONFUNGIBLE_POSITION_MANAGER_ADMINISTRATOR_ROLE
+    /// @param newFarmingCenter The new address of farmingCenter
+    function setFarmingCenter(address newFarmingCenter) external;
 }

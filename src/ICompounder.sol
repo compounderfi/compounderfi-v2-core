@@ -67,7 +67,6 @@ interface ICompounder {
     struct PoolKey {
         address token0;
         address token1;
-        uint24 fee;
     }
 
     struct SwapParams {
@@ -101,6 +100,7 @@ interface ICompounder {
         uint256 priceX96;
         uint160 sqrtPriceX96;
         int24 tick;
+        uint16 fee;
     }
 
     /**

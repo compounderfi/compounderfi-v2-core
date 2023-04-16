@@ -8,6 +8,7 @@ import "./external/openzeppelin/utils/Multicall.sol";
 import "./external/openzeppelin/token/ERC20/SafeERC20.sol";
 import "./external/openzeppelin/math/SafeMath.sol";
 
+import "./external/uniswap/v3-core/interfaces/IUniswapV3Factory.sol";
 import "./external/uniswap/v3-core/interfaces/IUniswapV3Pool.sol";
 import "./external/uniswap/v3-core/libraries/TickMath.sol";
 import "./external/uniswap/v3-core/libraries/FullMath.sol";
@@ -15,6 +16,7 @@ import "./external/uniswap/v3-periphery/libraries/LiquidityAmounts.sol";
 import "./external/uniswap/v3-periphery/interfaces/INonfungiblePositionManager.sol";
 import "./external/uniswap/v3-core/interfaces/callback/IUniswapV3SwapCallback.sol";
 import "./ICompounder.sol";
+import "forge-std/console.sol";
 
 /// @title Compounder, an automatic reinvesting tool for uniswap v3 positions
 /// @author kev1n
@@ -32,9 +34,6 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
     uint128 private constant Q96 = 2**96;
     uint256 private constant Q192 = 2**192;
 
-    //this is for the custom pool.swap logic
-    bytes32 private constant POOL_INIT_CODE_HASH = 0xe34f199b19b2b4f47f68442619d555527d244f78a3297ea89325f843f87b8b54;
-
     //reward paid out to compounder as a fraction of the caller's collected fees. ex: if protocolReward if 5, then the protocol will take 1/5 or 20% of the caller's fees and the caller will take 80%
     uint64 public constant override protocolReward = 5;
 
@@ -50,18 +49,23 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
     uint160 private constant MIN_SQRT_RATIO_PLUS_ONE = 4295128740;
     uint160 private constant MAX_SQRT_RATIO_MINUS_ONE = 1461446703485210103287273052203988822378723970341;
 
+    
     // uniswap v3 components
-    IUniswapV3Factory private immutable factory;
+    IAlgebraFactory private immutable factory;
     INonfungiblePositionManager private immutable nonfungiblePositionManager;
-    ISwapRouter private immutable swapRouter;
+    address private immutable poolDeployer;
+    //this is for the custom pool.swap logic
+    bytes32 private immutable POOL_INIT_CODE_HASH;
 
     mapping(address => mapping(address => uint256)) public override callerBalances; //maps a caller's address to each token's address to how much is owed to them by the protocol (rewards from calling the Compound function)
     mapping(address => uint256) public override protocolBalances; //protocol's unclaimed balances
 
-    constructor(IUniswapV3Factory _factory, INonfungiblePositionManager _nonfungiblePositionManager, ISwapRouter _swapRouter) {
+    constructor(IAlgebraFactory _factory, INonfungiblePositionManager _nonfungiblePositionManager, address _poolDeployer, bytes32 _poolInitCodeHash) {
         factory = _factory;
         nonfungiblePositionManager = _nonfungiblePositionManager;
-        swapRouter = _swapRouter;
+        poolDeployer = _poolDeployer;
+        POOL_INIT_CODE_HASH = _poolInitCodeHash;
+        
     }
 
     event Compound(uint256 tokenId, uint256 fee0, uint256 fee1); 
@@ -100,7 +104,8 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
         require(state.amount0 > 0 && state.amount1 > 0, "0claim");
 
         // get the position's details - information needed to compound
-        (, , state.token0, state.token1, state.fee, state.tickLower, state.tickUpper, , , , , ) = 
+
+        (,,state.token0,state.token1,state.tickLower,state.tickUpper,,,,,) = 
             nonfungiblePositionManager.positions(tokenId);
 
         //check the approvals for the tokens
@@ -147,10 +152,12 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
                 block.timestamp
             )
         );
-        
+
         //calculate slippages
         uint256 slippage0 = state.amount0 - compounded0; //cannot underflow because state.amount0 >= compounded0
         uint256 slippage1 = state.amount1 - compounded1; //cannot underflow because state.amount1 >= compounded1
+        console.log(compounded0, compounded1);
+        console.log(slippage0, slippage1);
 
         //check that slippage is not too high
         require(state.maxIncreaseLiqSlippage0 > slippage0, "slippageExceeded0");
@@ -219,7 +226,8 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
             delta1: 0,
             priceX96: 0,
             sqrtPriceX96: 0,
-            tick: 0
+            tick: 0,
+            fee: 0
         });
 
         //initalize return variables
@@ -227,10 +235,10 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
         amount1 = params.amount1;
         
         // get pool
-        IUniswapV3Pool pool = IUniswapV3Pool(factory.getPool(params.token0, params.token1, params.fee));
+        IUniswapV3Pool pool = IUniswapV3Pool(factory.poolByPair(params.token0, params.token1));
         
         //get pool variables
-        (state.sqrtPriceX96,state.tick,,,,,) = pool.slot0();
+        (state.sqrtPriceX96,state.tick,state.fee,,,,) = pool.globalState();
 
         //even though we're swapping, we don't need TWAP protection
         
@@ -266,29 +274,9 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
             
             //determine whether to swap token0 to token1 or token1 to token0
             if (amount1as0X96 < amount0as0X96) {
-                //account for pool fees
-                if (params.fee == 10000) {
-                    //sqrt 0.99
-                    state.sqrtPriceX96 = (99498743710 * state.sqrtPriceX96) / 100000000000;
-                } else if (params.fee == 3000) {
-                    //sqrt 0.997
-                    state.sqrtPriceX96 = (99849887331 * state.sqrtPriceX96) / 100000000000;
-                } else if (params.fee == 500) {
-                    //sqrt 0.9995
-                    state.sqrtPriceX96 = (99974996874 * state.sqrtPriceX96) / 100000000000;
-                } else if (params.fee == 100) {
-                    //sqrt 0.9999
-                    state.sqrtPriceX96 = (99994999875 * state.sqrtPriceX96) / 100000000000;
-                } else {
-                
-                    //don't need overflow protection here because the max value for fee is 2^16
-                    //max value for base before sqrt is 1.065536e+14: 2^16*100000000+100000000000000
-                    //max value for base after sqrt is 10322480
-                    
-                    uint256 base = sqrt(100000000000000 - uint256(params.fee) * 100000000);
-                    state.sqrtPriceX96 = (uint160(base) * state.sqrtPriceX96) / 10000000;
-                }
-                
+                uint256 base = sqrt(100000000000000 - uint256(state.fee) * 100000000);
+                state.sqrtPriceX96 = (uint160(base) * state.sqrtPriceX96) / 10000000;
+
                 //Price as a X96 number
                 state.priceX96 = FullMath.mulDiv(state.sqrtPriceX96, state.sqrtPriceX96, Q96);
 
@@ -296,29 +284,9 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
                 //how much of token0 to swap is state.delta0
                 state.delta0 = amount0as0X96.sub(amount1as0X96).div(FullMath.mulDiv(state.amountRatioX96, state.priceX96, Q96).add(Q96));
             } else {
-                //account for pool fees
-                if (params.fee == 10000) {
-                    //sqrt 1.01
-                    state.sqrtPriceX96 = (100498756211 * state.sqrtPriceX96) / 100000000000;
-                } else if (params.fee == 3000) {
-                    //sqrt 1.003
-                    state.sqrtPriceX96 = (100149887668 * state.sqrtPriceX96) / 100000000000;
-                } else if (params.fee == 500) {
-                    //sqrt 1.0005
-                    state.sqrtPriceX96 = (100024996876 * state.sqrtPriceX96) / 100000000000;
-                } else if (params.fee == 100) {
-                    //sqrt 1.0001
-                    state.sqrtPriceX96 = (100004999875 * state.sqrtPriceX96) / 100000000000;
-                } else {
-                
-                    //don't need overflow protection / muldiv here because the max value for fee is 2^16
-                    //max value for base before sqrt is 1.065536e+14: 2^16*100000000+100000000000000
-                    //max value for base after sqrt is 10322480
-                    
-                    uint256 base = sqrt(uint256(params.fee) * 100000000 + 100000000000000);
-                    state.sqrtPriceX96 = (uint160(base) * state.sqrtPriceX96) / 10000000;
-                }
-                
+                uint256 base = sqrt(uint256(state.fee) * 100000000 + 100000000000000);
+                state.sqrtPriceX96 = (uint160(base) * state.sqrtPriceX96) / 10000000;
+
                 //Price as a X96 number
                 state.priceX96 = FullMath.mulDiv(state.sqrtPriceX96, state.sqrtPriceX96, Q96);
 
@@ -329,7 +297,7 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
 
         }
 
-        PoolKey memory poolKey = PoolKey(params.token0, params.token1, params.fee);
+        PoolKey memory poolKey = PoolKey(params.token0, params.token1);
         if (state.delta0 > 0) {
             //see uniswapV3SwapCallback
             (, int256 amount1Out) = pool.swap(
@@ -375,7 +343,7 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
     }
 
     /// @dev Callback for Uniswap V3 pool.
-    function uniswapV3SwapCallback(
+    function algebraSwapCallback(
         int256 amount0Delta,
         int256 amount1Delta,
         bytes calldata data //data is abi encoded PoolKey
@@ -388,7 +356,7 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
                 keccak256(
                     abi.encodePacked(
                         hex'ff',
-                        factory,
+                        poolDeployer,
                         keccak256(data),
                         POOL_INIT_CODE_HASH
                     )
@@ -420,7 +388,7 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
         bool paidIn0 = uint8(msg.data[4]) == 1; //select the last byte of calldata after the selector and the tokenId
         
         this.compound(tokenId, paidIn0);
-    } 
+    }
 
     function sqrt(uint y) private pure returns (uint z) {
         if (y > 3) {

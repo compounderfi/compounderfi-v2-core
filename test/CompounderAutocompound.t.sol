@@ -15,16 +15,24 @@ contract CompounderTest is Test {
     Compounder private compounder;
 
     INonfungiblePositionManager private nonfungiblePositionManager;
-    IUniswapV3Factory private factory;
+    IAlgebraFactory private factory;
     ISwapRouter private swapRouter;
     
     
     constructor() {
-        factory = IUniswapV3Factory(0x1F98431c8aD98523631AE4a59f267346ea31F984);
-        nonfungiblePositionManager = INonfungiblePositionManager(0xC36442b4a4522E871399CD717aBDD847Ab11FE88);
-        swapRouter = ISwapRouter(0xE592427A0AEce92De3Edee1F18E0157C05861564);
+        /* camelot
+        factory = IAlgebraFactory(0xd490F2F6990C0291597fd1247651b4E0dCF684Dd);
+        nonfungiblePositionManager = INonfungiblePositionManager(0xAcDcC3C6A2339D08E0AC9f694E4DE7c52F890Db3);
+        address poolDeployer = 0x89aee07E1dbaFc82f089b45FfC763738e9FfF226;
+        bytes32 POOL_INIT_CODE_HASH = 0xb40252dc985eaa48143d8412032add3ca28d824c4790fb9f09e040fedf50d252;
+        */
 
-        compounder = new Compounder(factory, nonfungiblePositionManager, swapRouter);
+        factory = IAlgebraFactory(0x411b0fAcC3489691f28ad58c47006AF5E3Ab3A28);
+        nonfungiblePositionManager = INonfungiblePositionManager(0x8eF88E4c7CfbbaC1C163f7eddd4B578792201de6);
+        address poolDeployer = 0x2D98E2FA9da15aa6dC9581AB097Ced7af697CB92;
+        bytes32 POOL_INIT_CODE_HASH = 0x6ec6c9c8091d160c0aa74b2b14ba9c1717e95093bd3ac085cee99a49aab294a4;
+
+        compounder = new Compounder(factory, nonfungiblePositionManager, poolDeployer, POOL_INIT_CODE_HASH);
     }
 
     struct MeasurementsBefore {
@@ -57,15 +65,15 @@ contract CompounderTest is Test {
     //uint256 tokenId, bool paidInToken0
     function testPosition() public {
         
-        uint256 tokenId = 350449;
+        uint256 tokenId = 51267;
         bool paidInToken0 = true;
         
         /*
-        
         uint256 NFPMsupply = nonfungiblePositionManager.totalSupply();
-        tokenId = bound(tokenId, 375000, NFPMsupply);
-        require(tokenId >= 375000 && tokenId < NFPMsupply);
+        tokenId = bound(tokenId, 0, NFPMsupply);
+        require(tokenId >= 0 && tokenId < NFPMsupply);
         */
+
         try nonfungiblePositionManager.ownerOf(tokenId) returns (address positionOwner) {
             startHoax(positionOwner); //make owner the sender
 
@@ -97,14 +105,14 @@ contract CompounderTest is Test {
                 (afterComp.fee0, afterComp.fee1) 
                 = compounder.compound(tokenId, paidInToken0);
                 
-                (, , , , , , , uint128 liquidityafter, , , , ) = nonfungiblePositionManager.positions(tokenId);
+                (, , , , , , uint256 liquidityafter, , , , ) = nonfungiblePositionManager.positions(tokenId);
 
                 uint256 snapshot = vm.snapshot();
 
                 (afterComp.amount0after, afterComp.amount1after) = nonfungiblePositionManager.decreaseLiquidity(
                     INonfungiblePositionManager.DecreaseLiquidityParams(
                         tokenId, 
-                        liquidityafter, 
+                        uint128(liquidityafter), 
                         0, 
                         0,
                         block.timestamp
@@ -118,20 +126,23 @@ contract CompounderTest is Test {
                 //console.log(afterComp.slippage1 * 100000000);
                 //assures EOA got paid as they should've
 
-                /*
+                
                 vm.writeLine("./output.txt", uint2str(tokenId));
                 vm.writeLine("./output.txt", "slippage0");
-                */
-                //if ((( afterComp.slippage0 * 100000000) / before.unclaimed0) != 0)
-                //vm.writeLine("./output.txt", uint2str(( afterComp.slippage0 * 100000000) / before.unclaimed0));
+                vm.writeLine("./output.txt", uint2str(afterComp.slippage0));
                 /*
+                if ((( afterComp.slippage0 * 100000000) / before.unclaimed0) != 0)
+                vm.writeLine("./output.txt", uint2str(( afterComp.slippage0 * 100000000) / before.unclaimed0));
+                */
+
                 vm.writeLine("./output.txt", "slippage1");
-                */
-                //if ((( afterComp.slippage1 * 100000000) / before.unclaimed1) != 0)
-                //vm.writeLine("./output.txt", uint2str(( afterComp.slippage1 * 100000000) / before.unclaimed1));
+                vm.writeLine("./output.txt", uint2str(afterComp.slippage1));
                 /*
-                vm.writeLine("./output.txt", "-----------");
+                if ((( afterComp.slippage1 * 100000000) / before.unclaimed1) != 0)
+                vm.writeLine("./output.txt", uint2str(( afterComp.slippage1 * 100000000) / before.unclaimed1));
                 */
+                vm.writeLine("./output.txt", "-----------");
+                
                 if (paidInToken0) {
                     //vm.writeLine("./output.txt", uint2str(tokenId));
 
@@ -220,8 +231,8 @@ contract CompounderTest is Test {
         (unclaimed0, unclaimed1) = nonfungiblePositionManager.collect(
         INonfungiblePositionManager.CollectParams(tokenId, address(this), type(uint128).max, type(uint128).max)
         );
-        uint24 fee;
-        (, , token0, token1, fee, , , liquiditybefore, , , , ) = nonfungiblePositionManager.positions(tokenId);
+
+        (, , token0, token1, , , liquiditybefore, , , , ) = nonfungiblePositionManager.positions(tokenId);
 
         if (liquiditybefore == 0) {
             vm.expectRevert();
@@ -238,7 +249,7 @@ contract CompounderTest is Test {
         );
 
         vm.revertTo(snapshot);
-        pool = IUniswapV3Pool(factory.getPool(token0, token1, fee));
+        pool = IUniswapV3Pool(factory.poolByPair(token0, token1));
     }
 
     function uint2str(uint _i) internal pure returns (string memory _uintAsString) {
