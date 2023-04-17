@@ -275,9 +275,9 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
                 if (params.fee == 10000) {
                     //sqrt 0.99
                     state.sqrtPriceX96 = (99498743710 * state.sqrtPriceX96) / 100000000000;
-                } else if (params.fee == 3000) {
+                } else if (params.fee == 2500) {
                     //sqrt 0.997
-                    state.sqrtPriceX96 = (99849887331 * state.sqrtPriceX96) / 100000000000;
+                    state.sqrtPriceX96 = (99874921777 * state.sqrtPriceX96) / 100000000000;
                 } else if (params.fee == 500) {
                     //sqrt 0.9995
                     state.sqrtPriceX96 = (99974996874 * state.sqrtPriceX96) / 100000000000;

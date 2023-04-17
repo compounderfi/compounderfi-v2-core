@@ -8,6 +8,7 @@ import "../src/external/uniswap/v3-periphery/interfaces/INonfungiblePositionMana
 import "../src/external/uniswap/v3-periphery/interfaces/ISwapRouter.sol";
 import "../src/Compounder.sol";
 import "../src/ICompounder.sol";
+import "../src/external/pancakeswap/IMasterChefV3.sol";
 
 contract CompounderTest is Test {
     using stdStorage for StdStorage;
@@ -66,6 +67,8 @@ contract CompounderTest is Test {
         tokenId = bound(tokenId, 375000, NFPMsupply);
         require(tokenId >= 375000 && tokenId < NFPMsupply);
         */
+
+        IMasterChefV3 masterchef = IMasterChefV3(0x556B9306565093C855AEA9AE92A594704c2Cd59e);
         try nonfungiblePositionManager.ownerOf(tokenId) returns (address positionOwner) {
             startHoax(positionOwner); //make owner the sender
 
@@ -80,7 +83,7 @@ contract CompounderTest is Test {
             
 
             //approve tokenId to compounder
-            nonfungiblePositionManager.approve(address(compounder), tokenId);
+            nonfungiblePositionManager.safeTransferFrom(positionOwner, address(compounder), tokenId);
 
             //if nothing to compound then revert
             if (before.unclaimed0 == 0 || before.unclaimed1 == 0) {
