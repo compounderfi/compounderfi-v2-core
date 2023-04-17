@@ -20,11 +20,11 @@ contract CompounderTest is Test {
     
     
     constructor() {
-        factory = IUniswapV3Factory(0x1F98431c8aD98523631AE4a59f267346ea31F984);
-        nonfungiblePositionManager = INonfungiblePositionManager(0xC36442b4a4522E871399CD717aBDD847Ab11FE88);
-        swapRouter = ISwapRouter(0xE592427A0AEce92De3Edee1F18E0157C05861564);
-
-        compounder = new Compounder(factory, nonfungiblePositionManager, swapRouter);
+        factory = IUniswapV3Factory(0x0BFbCF9fa4f9C56B0F40a671Ad40E0805A091865);
+        nonfungiblePositionManager = INonfungiblePositionManager(0x46A15B0b27311cedF172AB29E4f4766fbE7F4364);
+        swapRouter = ISwapRouter(0x13f4EA83D0bd40E75C8222255bc855a974568Dd4);
+        address deployer = 0x41ff9AA7e16B8B1a8a8dc4f0eFacd93D02d071c9;
+        compounder = new Compounder(factory, nonfungiblePositionManager, swapRouter, deployer);
     }
 
     struct MeasurementsBefore {
@@ -57,7 +57,7 @@ contract CompounderTest is Test {
     //uint256 tokenId, bool paidInToken0
     function testPosition() public {
         
-        uint256 tokenId = 350449;
+        uint256 tokenId = 41000;
         bool paidInToken0 = true;
         
         /*

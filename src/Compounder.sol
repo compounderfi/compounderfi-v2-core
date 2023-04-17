@@ -15,6 +15,7 @@ import "./external/uniswap/v3-periphery/libraries/LiquidityAmounts.sol";
 import "./external/uniswap/v3-periphery/interfaces/INonfungiblePositionManager.sol";
 import "./external/uniswap/v3-core/interfaces/callback/IUniswapV3SwapCallback.sol";
 import "./ICompounder.sol";
+import "forge-std/console.sol";
 
 /// @title Compounder, an automatic reinvesting tool for uniswap v3 positions
 /// @author kev1n
@@ -33,7 +34,7 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
     uint256 private constant Q192 = 2**192;
 
     //this is for the custom pool.swap logic
-    bytes32 private constant POOL_INIT_CODE_HASH = 0xe34f199b19b2b4f47f68442619d555527d244f78a3297ea89325f843f87b8b54;
+    bytes32 private constant POOL_INIT_CODE_HASH = 0x6ce8eb472fa82df5469c6ab6d485f17c3ad13c8cd7af59b3d4a8026c5ce0f7e2;
 
     //reward paid out to compounder as a fraction of the caller's collected fees. ex: if protocolReward if 5, then the protocol will take 1/5 or 20% of the caller's fees and the caller will take 80%
     uint64 public constant override protocolReward = 5;
@@ -54,14 +55,16 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
     IUniswapV3Factory private immutable factory;
     INonfungiblePositionManager private immutable nonfungiblePositionManager;
     ISwapRouter private immutable swapRouter;
+    address private immutable deployer;
 
     mapping(address => mapping(address => uint256)) public override callerBalances; //maps a caller's address to each token's address to how much is owed to them by the protocol (rewards from calling the Compound function)
     mapping(address => uint256) public override protocolBalances; //protocol's unclaimed balances
 
-    constructor(IUniswapV3Factory _factory, INonfungiblePositionManager _nonfungiblePositionManager, ISwapRouter _swapRouter) {
+    constructor(IUniswapV3Factory _factory, INonfungiblePositionManager _nonfungiblePositionManager, ISwapRouter _swapRouter, address _deployer) {
         factory = _factory;
         nonfungiblePositionManager = _nonfungiblePositionManager;
         swapRouter = _swapRouter;
+        deployer = _deployer;
     }
 
     event Compound(uint256 tokenId, uint256 fee0, uint256 fee1); 
@@ -228,7 +231,7 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
         
         // get pool
         IUniswapV3Pool pool = IUniswapV3Pool(factory.getPool(params.token0, params.token1, params.fee));
-        
+
         //get pool variables
         (state.sqrtPriceX96,state.tick,,,,,) = pool.slot0();
 
@@ -244,6 +247,7 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
         // Lower gas fees -> less amount needed to compound with -> less price impact -> less likely to be profitable for an attacker
         
 
+        
         // calculate how much of the position needs to be converted to the other token
         // these two extremities will revert if the tick changes to be in range after the swap
         if (state.tick >= params.tickUpper) { //swap token0 to token1
@@ -251,6 +255,7 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
         } else if (state.tick <= params.tickLower) { //swap token1 to token0
             state.delta1 = amount1;
         } else { //figure out whether to swap token0 to token1 or token1 to token0, and how much
+
             (state.positionAmount0, state.positionAmount1) = LiquidityAmounts.getAmountsForLiquidity(
                                                             state.sqrtPriceX96, 
                                                             TickMath.getSqrtRatioAtTick(params.tickLower), 
@@ -375,20 +380,20 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
     }
 
     /// @dev Callback for Uniswap V3 pool.
-    function uniswapV3SwapCallback(
+    function pancakeV3SwapCallback(
         int256 amount0Delta,
         int256 amount1Delta,
         bytes calldata data //data is abi encoded PoolKey
     ) external override {
         PoolKey memory poolkey = abi.decode(data, (PoolKey));
-        
+
         //guarentees that the sender is the pool that was swapped with
         address pool = address(
             uint256(
                 keccak256(
                     abi.encodePacked(
                         hex'ff',
-                        factory,
+                        deployer,
                         keccak256(data),
                         POOL_INIT_CODE_HASH
                     )
@@ -397,30 +402,11 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
         );
 
         require(msg.sender == pool);
-        
+
         if (amount0Delta > 0) SafeERC20.safeTransfer(IERC20(poolkey.token0), msg.sender, uint256(amount0Delta));
         if (amount1Delta > 0) SafeERC20.safeTransfer(IERC20(poolkey.token1), msg.sender, uint256(amount1Delta));
+
     }
-
-    /// @dev this function should be called by compounding bots on L2 chains only to minimize gas costs.
-    /// @dev this minimizes gas costs because less calldata is rolled up to the L1, as little as 5 bytes of data versus 68 bytes when calling the compound function
-    /// @dev however, it should not be called on L1s because the computation costs exceed the gas costs
-    /// @dev to call this function you should send a raw transaction to this address with the following calldata:
-    /// @dev "0x" + hexadecimal encoded version of the tokenId + ("01" or "00")
-    /// @dev this is a total of 5 bytes of data: 4 for the tokenId and 1 for the boolean paidIn0
-    /// @dev ex: calling the compound function with tokenId 48834 and paidIn0 as true should be:
-    /// @dev "0x0000BEC201" -> "0x" + "0000BEC2" (48834 as hex) + "01" (true)
-    fallback() external {
-        uint256 tokenId;
-        assembly {
-            tokenId := calldataload(0)
-        }
-
-        tokenId = tokenId >> (256-4*8); //select the first 4 bytes of calldata after the selector
-        bool paidIn0 = uint8(msg.data[4]) == 1; //select the last byte of calldata after the selector and the tokenId
-        
-        this.compound(tokenId, paidIn0);
-    } 
 
     function sqrt(uint y) private pure returns (uint z) {
         if (y > 3) {
