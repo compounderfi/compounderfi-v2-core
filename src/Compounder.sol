@@ -113,10 +113,6 @@ contract Compounder is ICompounder, IERC721Receiver, IUniswapV3SwapCallback, Ree
             tickUpper: 0
         });
 
-        // get the position's details - information needed to compound
-        (, , state.token0, state.token1, state.fee, state.tickLower, state.tickUpper, , , , , ) = 
-            nonfungiblePositionManager.positions(tokenId);
-
         // collect fees from the position
         (state.amount0, state.amount1) = masterchef.collect(
             INonfungiblePositionManagerStruct.CollectParams(tokenId, address(this), type(uint128).max, type(uint128).max)
@@ -133,65 +129,17 @@ contract Compounder is ICompounder, IERC721Receiver, IUniswapV3SwapCallback, Ree
             fee1 = state.amount1 / grossCallerReward;
             state.amount1 = state.amount1 - fee1;
         }
+                // get the position's details - information needed to compound
+        (, , state.token0, state.token1, state.fee, state.tickLower, state.tickUpper, , , , , ) = 
+            nonfungiblePositionManager.positions(tokenId);
 
-        //harvest cake rewards
-        uint256 cakeRewards = masterchef.harvest(tokenId, address(this));
-
-        //check to see if state.token0 or state.token1 are already cake and thus don't need any swapping
-        if (state.token0 == CAKE) {
-            state.amount0 += cakeRewards;
-        } else if (state.token1 == CAKE) {
-            state.amount1 += cakeRewards;
-        } else {
-            //determine which token to swap with
-            address tokenToSwapWith = determineTokenToSwapWith(state.token0, state.token1);
-            
-            //swap cake for tokenToSwapWith
-            (IUniswapV3Pool poolWithHighestLiq, uint24 feeTier) = findBestCakeSwapPath(tokenToSwapWith);
-
-            if (CAKE < tokenToSwapWith) {
-                //cake is token0
-                //tokenToSwapWith is token1
-
-                //swap cake for tokenToSwapWith
-
-                PoolKey memory poolKey = PoolKey(CAKE, tokenToSwapWith, feeTier);
-                (, int256 amount1Out) = poolWithHighestLiq.swap(
-                    address(this),
-                    true, //true for token0 to token1,
-                    int256(cakeRewards),
-                    MIN_SQRT_RATIO_PLUS_ONE,
-                    abi.encode(poolKey)
-                );
-
-                if (tokenToSwapWith == state.token0) {
-                    state.amount0 += uint256(-amount1Out);
-                } else {
-                    state.amount1 += uint256(-amount1Out);
-                }
-            } else {
-                //cake is token1
-                //tokenToSwapWith is token0
-
-                //swap cake for tokenToSwapWith
-
-                PoolKey memory poolKey = PoolKey(tokenToSwapWith, CAKE, feeTier);
-                (int256 amount0Out, ) = poolWithHighestLiq.swap(
-                    address(this),
-                    false, //false for token1 to token0
-                    int256(cakeRewards),
-                    MAX_SQRT_RATIO_MINUS_ONE,
-                    abi.encode(poolKey)
-                );
-
-                if (tokenToSwapWith == state.token0) {
-                    state.amount0 += uint256(-amount0Out);
-                } else {
-                    state.amount1 += uint256(-amount0Out);
-                }
-            }
-
-        }
+        
+        //cake is converted to either token0 or token 1
+        //this is done fully, so that all of the cake is converted
+        //we don't have to worry about swapping in the correct ratio, because that comes later
+        (uint256 token0increase, uint256 token1increase) = cakeToToken0orToken1(tokenId, state.token0, state.token1);
+        state.amount0 += token0increase;
+        state.amount1 += token1increase;
 
         _checkApprovals(IERC20(state.token0), IERC20(state.token1));
 
@@ -285,6 +233,67 @@ contract Compounder is ICompounder, IERC721Receiver, IUniswapV3SwapCallback, Ree
         SafeERC20.safeTransfer(IERC20(tokenAddress), to, amount);
     }
 
+
+    function cakeToToken0orToken1(uint256 tokenId, address token0, address token1) private returns (uint256 token0increased, uint256 token1increased) {
+        //harvest cake rewards
+        uint256 cakeRewards = masterchef.harvest(tokenId, address(this));
+
+        //check to see if state.token0 or state.token1 are already cake and thus don't need any swapping
+        if (token0 == CAKE) {
+            return (cakeRewards, 0);
+        } else if (token1 == CAKE) {
+            return (0, cakeRewards);
+        } else {
+            //determine which token to swap with
+            address tokenToSwapWith = determineTokenToSwapWith(token0, token1);
+            
+            //swap cake for tokenToSwapWith
+            (IUniswapV3Pool poolWithHighestLiq, uint24 feeTier) = findBestCakeSwapPath(tokenToSwapWith);
+
+            if (CAKE < tokenToSwapWith) {
+                //cake is token0
+                //tokenToSwapWith is token1
+
+                //swap cake for tokenToSwapWith
+
+                PoolKey memory poolKey = PoolKey(CAKE, tokenToSwapWith, feeTier);
+                (, int256 amount1Out) = poolWithHighestLiq.swap(
+                    address(this),
+                    true, //true for token0 to token1,
+                    int256(cakeRewards),
+                    MIN_SQRT_RATIO_PLUS_ONE,
+                    abi.encode(poolKey)
+                );
+
+                if (tokenToSwapWith == token0) {
+                    return (uint256(-amount1Out), 0);
+                } else {
+                    return (0, uint256(-amount1Out));
+                }
+            } else {
+                //cake is token1
+                //tokenToSwapWith is token0
+
+                //swap cake for tokenToSwapWith
+
+                PoolKey memory poolKey = PoolKey(tokenToSwapWith, CAKE, feeTier);
+                (int256 amount0Out, ) = poolWithHighestLiq.swap(
+                    address(this),
+                    false, //false for token1 to token0
+                    int256(cakeRewards),
+                    MAX_SQRT_RATIO_MINUS_ONE,
+                    abi.encode(poolKey)
+                );
+
+                if (tokenToSwapWith == token0) {
+                    return (uint256(amount0Out), 0);
+                } else {
+                    return (0, uint256(amount0Out));
+                }
+            }
+
+        }
+    }
     //todo add overrides
     function determineTokenToSwapWith(address token0, address token1) private view returns (address token) {
         //determine if either token is inside whitelisted
