@@ -12,6 +12,13 @@ import "./external/uniswap/v3-periphery/interfaces/ISwapRouter.sol";
 interface ICompounder {
 
     /**
+     * @notice  returns the owner of a compounder-managed NFT
+     * @param   tokenId the tokenId being checked
+     * @return  owner the owner of the tokenId
+     */
+    function ownerOf(uint256 tokenId) external view returns (address owner);
+
+    /**
      * @notice reward paid out to compounder as a fraction of the caller's collected fees. ex: if protocolReward if 5, then the protocol will take 1/5 or 20% of the caller's fees and the caller will take 80%
      * @return the protocolReward
      */
@@ -64,6 +71,35 @@ interface ICompounder {
      */
     function withdrawBalanceProtocol(address tokenAddress, address to) external;
 
+    /**
+     * @notice Removes a NFT from the protocol and safe transfers it to address to
+     * @param tokenId TokenId of token to remove
+     * @param to Address to send to
+     * @param withdrawBalances When true sends the available balances for token0 and token1 as well
+     * @param data data which is sent with the safeTransferFrom call
+     */
+    function withdrawToken(
+        uint256 tokenId,
+        address to,
+        bool withdrawBalances,
+        bytes memory data
+    ) external;
+
+    /**
+     * @notice Special method to decrease liquidity and collect decreased amount - can only be called by the NFT owner
+     * @dev Needs to do collect at the same time, otherwise the available amount would be autocompoundable for other positions
+     * @param params DecreaseLiquidityAndCollectParams which are forwarded to the Uniswap V3 NonfungiblePositionManager
+     * @return amount0 amount of token0 removed and collected
+     * @return amount1 amount of token1 removed and collected
+     */
+    function decreaseLiquidityAndCollect(DecreaseLiquidityAndCollectParams calldata params) external returns (uint256 amount0, uint256 amount1);
+    
+    event TokenDeposited(address account, uint256 tokenId);
+
+    event TokenWithdrawn(address account, address to, uint256 tokenId);
+
+    event Compound(uint256 tokenId, uint256 fee0, uint256 fee1); 
+
     struct PoolKey {
         address token0;
         address token1;
@@ -103,6 +139,15 @@ interface ICompounder {
         int24 tick;
     }
 
+    struct DecreaseLiquidityAndCollectParams {
+        uint256 tokenId;
+        uint128 liquidity;
+        uint256 amount0Min;
+        uint256 amount1Min;
+        uint256 deadline;
+        address recipient;
+    }
+
     /**
      * @notice Compounds UniswapV3 fees for a given NFT (anyone can call this and gets a percentage of the fees)
      * @param tokenId the tokenId being selected to compound
@@ -113,4 +158,11 @@ interface ICompounder {
      */
     function compound(uint256 tokenId, bool paidIn0) external returns (uint256 fee0, uint256 fee1);
 
+    /**
+     * @notice Forwards collect call to NonfungiblePositionManager - can only be called by the NFT owner
+     * @param params INonfungiblePositionManager.CollectParams which are forwarded to the Uniswap V3 NonfungiblePositionManager
+     * @return amount0 amount of token0 collected
+     * @return amount1 amount of token1 collected
+     */
+    function collect(INonfungiblePositionManager.CollectParams calldata params) external returns (uint256 amount0, uint256 amount1);
 }

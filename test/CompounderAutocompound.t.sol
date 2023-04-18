@@ -60,6 +60,8 @@ contract CompounderTest is Test {
         
         uint256 tokenId = 41000;
         bool paidInToken0 = true;
+
+        IMasterChefV3 masterchef = IMasterChefV3(0x556B9306565093C855AEA9AE92A594704c2Cd59e);
         
         /*
         
@@ -68,7 +70,7 @@ contract CompounderTest is Test {
         require(tokenId >= 375000 && tokenId < NFPMsupply);
         */
 
-        IMasterChefV3 masterchef = IMasterChefV3(0x556B9306565093C855AEA9AE92A594704c2Cd59e);
+        
         try nonfungiblePositionManager.ownerOf(tokenId) returns (address positionOwner) {
             startHoax(positionOwner); //make owner the sender
 
@@ -100,12 +102,16 @@ contract CompounderTest is Test {
                 (afterComp.fee0, afterComp.fee1) 
                 = compounder.compound(tokenId, paidInToken0);
                 
+
+                vm.stopPrank();
+                startHoax(address(compounder));
+
                 (, , , , , , , uint128 liquidityafter, , , , ) = nonfungiblePositionManager.positions(tokenId);
 
                 uint256 snapshot = vm.snapshot();
 
-                (afterComp.amount0after, afterComp.amount1after) = nonfungiblePositionManager.decreaseLiquidity(
-                    INonfungiblePositionManager.DecreaseLiquidityParams(
+                (afterComp.amount0after, afterComp.amount1after) = masterchef.decreaseLiquidity(
+                    INonfungiblePositionManagerStruct.DecreaseLiquidityParams(
                         tokenId, 
                         liquidityafter, 
                         0, 
@@ -135,6 +141,10 @@ contract CompounderTest is Test {
                 /*
                 vm.writeLine("./output.txt", "-----------");
                 */
+
+                vm.stopPrank();
+                startHoax(address(positionOwner));
+
                 if (paidInToken0) {
                     //vm.writeLine("./output.txt", uint2str(tokenId));
 

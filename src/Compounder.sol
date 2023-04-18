@@ -7,6 +7,7 @@ import "./external/openzeppelin/utils/ReentrancyGuard.sol";
 import "./external/openzeppelin/utils/Multicall.sol";
 import "./external/openzeppelin/token/ERC20/SafeERC20.sol";
 import "./external/openzeppelin/math/SafeMath.sol";
+import "./external/openzeppelin/token/ERC721/IERC721Receiver.sol";
 
 import "./external/uniswap/v3-core/interfaces/IUniswapV3Pool.sol";
 import "./external/uniswap/v3-core/libraries/TickMath.sol";
@@ -17,6 +18,8 @@ import "./external/uniswap/v3-core/interfaces/callback/IUniswapV3SwapCallback.so
 import "./ICompounder.sol";
 import "forge-std/console.sol";
 
+import "../src/external/pancakeswap/IMasterChefV3.sol";
+
 /// @title Compounder, an automatic reinvesting tool for uniswap v3 positions
 /// @author kev1n
 /** @notice 
@@ -26,12 +29,15 @@ import "forge-std/console.sol";
  * Protocol refers to compounder.fi, the organization who created this contract
 **/
 
-contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Ownable, Multicall {
+contract Compounder is ICompounder, IERC721Receiver, IUniswapV3SwapCallback, ReentrancyGuard, Ownable, Multicall {
     using SafeERC20 for IERC20;
     using SafeMath for uint256;
 
     uint128 private constant Q96 = 2**96;
     uint256 private constant Q192 = 2**192;
+
+    // max positions
+    uint32 constant public MAX_POSITIONS_PER_ADDRESS = 100;
 
     //this is for the custom pool.swap logic
     bytes32 private constant POOL_INIT_CODE_HASH = 0x6ce8eb472fa82df5469c6ab6d485f17c3ad13c8cd7af59b3d4a8026c5ce0f7e2;
@@ -56,18 +62,30 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
     INonfungiblePositionManager private immutable nonfungiblePositionManager;
     ISwapRouter private immutable swapRouter;
     address private immutable deployer;
+    IMasterChefV3 masterchef = IMasterChefV3(0x556B9306565093C855AEA9AE92A594704c2Cd59e);
+    address CAKE = 0x0E09FaBB73Bd3Ade0a17ECC321fD13a19e81cE82;
 
+    //we don't count 100 because of optimizations later
+    uint24[] private feeTiers = [500, 2500, 10000];
+    address[] private whitelistedTokens = [
+        0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c, //WBNB
+        0x55d398326f99059fF775485246999027B3197955, //BUSD
+        0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d, //USDC
+        0x1AF3F329e8BE154074D8769D1FFa4eE058B1DBc3, //DAI
+        0x7130d2A12B9BCbFAe4f2634d864A1Ee1Ce3Ead9c, //BTCB
+        0x2170Ed0880ac9A755fd29B2688956BD959F933F8 //ETH
+    ];
     mapping(address => mapping(address => uint256)) public override callerBalances; //maps a caller's address to each token's address to how much is owed to them by the protocol (rewards from calling the Compound function)
     mapping(address => uint256) public override protocolBalances; //protocol's unclaimed balances
 
+    mapping(uint256 => address) public override ownerOf; //maps a tokenID to its owner - when sent to this contract to be autocompounded
+    
     constructor(IUniswapV3Factory _factory, INonfungiblePositionManager _nonfungiblePositionManager, ISwapRouter _swapRouter, address _deployer) {
         factory = _factory;
         nonfungiblePositionManager = _nonfungiblePositionManager;
         swapRouter = _swapRouter;
         deployer = _deployer;
     }
-
-    event Compound(uint256 tokenId, uint256 fee0, uint256 fee1); 
     
     /**
      * @notice Compounds uniswapV3 fees for a given NFT (anyone can call this and gets a percentage of the fees)
@@ -82,6 +100,7 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
         external
         returns (uint256 fee0, uint256 fee1)
     {   
+
         CompoundState memory state = CompoundState({
             amount0: 0,
             amount1: 0,
@@ -94,24 +113,17 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
             tickUpper: 0
         });
 
-        // collect fees from the position
-        (state.amount0, state.amount1) = nonfungiblePositionManager.collect(
-            INonfungiblePositionManager.CollectParams(tokenId, address(this), type(uint128).max, type(uint128).max)
-        );
-
-        // ensure that there are fees to compound
-        require(state.amount0 > 0 && state.amount1 > 0, "0claim");
-
         // get the position's details - information needed to compound
         (, , state.token0, state.token1, state.fee, state.tickLower, state.tickUpper, , , , , ) = 
             nonfungiblePositionManager.positions(tokenId);
 
-        //check the approvals for the tokens
-        _checkApprovals(IERC20(state.token0), IERC20(state.token1));
+        // collect fees from the position
+        (state.amount0, state.amount1) = masterchef.collect(
+            INonfungiblePositionManagerStruct.CollectParams(tokenId, address(this), type(uint128).max, type(uint128).max)
+        );
 
-        //get the max slippage allowed for the position - read more about slippage later
-        state.maxIncreaseLiqSlippage0 = state.amount0 / maxIncreaseLiqSlippage; // 1/200th of amount0
-        state.maxIncreaseLiqSlippage1 = state.amount1 / maxIncreaseLiqSlippage; // 1/200th of amount1
+        // ensure that there are fees to compound
+        require(state.amount0 > 0 && state.amount1 > 0, "0claim");
 
         //caller earns 1/40th of their token of choice
         if (paidIn0) {
@@ -121,6 +133,71 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
             fee1 = state.amount1 / grossCallerReward;
             state.amount1 = state.amount1 - fee1;
         }
+
+        //harvest cake rewards
+        uint256 cakeRewards = masterchef.harvest(tokenId, address(this));
+
+        //check to see if state.token0 or state.token1 are already cake and thus don't need any swapping
+        if (state.token0 == CAKE) {
+            state.amount0 += cakeRewards;
+        } else if (state.token1 == CAKE) {
+            state.amount1 += cakeRewards;
+        } else {
+            //determine which token to swap with
+            address tokenToSwapWith = determineTokenToSwapWith(state.token0, state.token1);
+            
+            //swap cake for tokenToSwapWith
+            (IUniswapV3Pool poolWithHighestLiq, uint24 feeTier) = findBestCakeSwapPath(tokenToSwapWith);
+
+            if (CAKE < tokenToSwapWith) {
+                //cake is token0
+                //tokenToSwapWith is token1
+
+                //swap cake for tokenToSwapWith
+
+                PoolKey memory poolKey = PoolKey(CAKE, tokenToSwapWith, feeTier);
+                (, int256 amount1Out) = poolWithHighestLiq.swap(
+                    address(this),
+                    true, //true for token0 to token1,
+                    int256(cakeRewards),
+                    MIN_SQRT_RATIO_PLUS_ONE,
+                    abi.encode(poolKey)
+                );
+
+                if (tokenToSwapWith == state.token0) {
+                    state.amount0 += uint256(-amount1Out);
+                } else {
+                    state.amount1 += uint256(-amount1Out);
+                }
+            } else {
+                //cake is token1
+                //tokenToSwapWith is token0
+
+                //swap cake for tokenToSwapWith
+
+                PoolKey memory poolKey = PoolKey(tokenToSwapWith, CAKE, feeTier);
+                (int256 amount0Out, ) = poolWithHighestLiq.swap(
+                    address(this),
+                    false, //false for token1 to token0
+                    int256(cakeRewards),
+                    MAX_SQRT_RATIO_MINUS_ONE,
+                    abi.encode(poolKey)
+                );
+
+                if (tokenToSwapWith == state.token0) {
+                    state.amount0 += uint256(-amount0Out);
+                } else {
+                    state.amount1 += uint256(-amount0Out);
+                }
+            }
+
+        }
+
+        _checkApprovals(IERC20(state.token0), IERC20(state.token1));
+
+        //get the max slippage allowed for the position - read more about slippage later
+        state.maxIncreaseLiqSlippage0 = state.amount0 / maxIncreaseLiqSlippage; // 1/200th of amount0
+        state.maxIncreaseLiqSlippage1 = state.amount1 / maxIncreaseLiqSlippage; // 1/200th of amount1
 
         SwapParams memory swapParams = SwapParams({
             amount0: state.amount0,
@@ -140,8 +217,8 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
         //sometimes increasing liquidity will accrue slippage, and not all of the fees will be compounded (but almost all of it will be).
         //this is because the calculations for state.amount0 and state.amount1
         //are based upon the current price ratio ratio of liquidity in the position, and both will change after the swap is made. However, this "slippage" is often negligible, and will be credited to the caller if that is the token they desire
-        (, uint256 compounded0, uint256 compounded1) = nonfungiblePositionManager.increaseLiquidity(
-            INonfungiblePositionManager.IncreaseLiquidityParams(
+        (, uint256 compounded0, uint256 compounded1) = masterchef.increaseLiquidity(
+            INonfungiblePositionManagerStruct.IncreaseLiquidityParams(
                 tokenId,
                 state.amount0,
                 state.amount1,
@@ -208,6 +285,51 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
         SafeERC20.safeTransfer(IERC20(tokenAddress), to, amount);
     }
 
+    //todo add overrides
+    function determineTokenToSwapWith(address token0, address token1) private view returns (address token) {
+        //determine if either token is inside whitelisted
+        //it doesn't matter if both are whitelisted - their liquidities are deep enough that it doesn't make sense to compare prices/liquidities
+        address[] memory whitelistedTokensCopy = whitelistedTokens;
+        for (uint256 i = 0; i < whitelistedTokensCopy.length; i++) {
+            if (whitelistedTokensCopy[i] == token0) {
+                return token0;
+            }
+            if (whitelistedTokensCopy[i] == token1) {
+                return token1;
+            }
+        }
+        return address(0x0);
+
+    }
+
+    //todo add overrides
+    function findBestCakeSwapPath(address token) private view returns (IUniswapV3Pool poolWithHighestLiq, uint24 fee) {
+        uint24[] memory feeTiersCopy = feeTiers;
+
+        //get the liquidity of the lowest fee tier and assume that it is the highest liquidity
+        poolWithHighestLiq = IUniswapV3Pool(factory.getPool(token, CAKE, 100));
+        uint256 liquidityHighest = poolWithHighestLiq.liquidity();
+        fee = 100;
+        
+        //loops through 
+        for (uint256 i = 1; i < feeTiers.length; i++) {
+            uint24 feeTier = feeTiersCopy[i];
+            IUniswapV3Pool pool = IUniswapV3Pool(factory.getPool(token, CAKE, feeTier));
+            uint256 liquidity = pool.liquidity();
+
+            if (liquidity > liquidityHighest) {
+                poolWithHighestLiq = pool;
+                liquidityHighest = liquidity;
+                fee = feeTier;
+            } else {
+                //we can safely break because if the lower fee tiers has more liquidity than the one higher,
+                //then the subsequent ones will probably also have lower liquidity too
+                break;
+            }
+        }
+
+    }
+
     // checks oracle for fair price - swaps to position ratio (considering estimated reward) - calculates max amount to be added
     function _swapToPriceRatio(SwapParams memory params) 
         private 
@@ -261,14 +383,15 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
                                                             TickMath.getSqrtRatioAtTick(params.tickLower), 
                                                             TickMath.getSqrtRatioAtTick(params.tickUpper), 
                                                             Q96);
-                                                            
+           
             //calculate the ratio of token0 to token1 in the UniswapV3 position
             state.amountRatioX96 = FullMath.mulDiv(state.positionAmount0, Q96, state.positionAmount1);
 
             //calculate the price of token0 to token1 in the UniswapV3 position
             uint256 amount1as0X96 = state.amountRatioX96.mul(amount1);
+
             uint256 amount0as0X96 = amount0.mul(Q96); 
-            
+
             //determine whether to swap token0 to token1 or token1 to token0
             if (amount1as0X96 < amount0as0X96) {
                 //account for pool fees
@@ -334,6 +457,7 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
 
         }
 
+
         PoolKey memory poolKey = PoolKey(params.token0, params.token1, params.fee);
         if (state.delta0 > 0) {
             //see uniswapV3SwapCallback
@@ -349,6 +473,7 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
 
             amount0 = amount0.sub(state.delta0);
             amount1 = amount1.add(amountOut);
+
         } else {
             (int256 amount0Out,) = pool.swap(
                 address(this),
@@ -368,14 +493,12 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
     // @dev Checks if the contract has approval to spend the tokens.
     // @dev If not it will approve the contract to spend the tokens.
     function _checkApprovals(IERC20 token0, IERC20 token1) private {
-        //safeApprove to support tokens like USDT
-        if (token0.allowance(address(this), address(nonfungiblePositionManager)) == 0) {
-            //safeApprove is slightly modified to reduce gas
-            //Since this function already has a check for allowance, the check in safeApprove is redundant and was editted out
-            SafeERC20.safeApprove(token0, address(nonfungiblePositionManager), type(uint256).max);
+        //also approve masterchef
+        if (token0.allowance(address(this), address(masterchef)) == 0) {
+            SafeERC20.safeApprove(token0, address(masterchef), type(uint256).max);
         }
-        if (token1.allowance(address(this), address(nonfungiblePositionManager)) == 0) {
-            SafeERC20.safeApprove(token1, address(nonfungiblePositionManager), type(uint256).max);
+        if (token1.allowance(address(this), address(masterchef)) == 0) {
+            SafeERC20.safeApprove(token1, address(masterchef), type(uint256).max);
         }
     }
 
@@ -406,6 +529,105 @@ contract Compounder is ICompounder, IUniswapV3SwapCallback, ReentrancyGuard, Own
         if (amount0Delta > 0) SafeERC20.safeTransfer(IERC20(poolkey.token0), msg.sender, uint256(amount0Delta));
         if (amount1Delta > 0) SafeERC20.safeTransfer(IERC20(poolkey.token1), msg.sender, uint256(amount1Delta));
 
+    }
+
+    /**
+     * @notice Removes a NFT from the protocol and safe transfers it to address to
+     * @param tokenId TokenId of token to remove
+     * @param to Address to send to
+     * @param withdrawBalances When true sends the available balances for token0 and token1 as well
+     * @param data data which is sent with the safeTransferFrom call
+     */
+    function withdrawToken(
+        uint256 tokenId,
+        address to,
+        bool withdrawBalances,
+        bytes memory data
+    ) external override nonReentrant {
+        require(ownerOf[tokenId] == msg.sender, "!owner");
+        require(to != address(this), "to==this");
+
+         if (withdrawBalances) {// fine to withdraw before because the function is nonReetrant
+            nonfungiblePositionManager.collect(
+                INonfungiblePositionManager.CollectParams(tokenId, to, type(uint128).max, type(uint128).max)
+            );
+        }
+
+        nonfungiblePositionManager.safeTransferFrom(address(this), to, tokenId, data);
+        emit TokenWithdrawn(msg.sender, to, tokenId);
+    }
+    /**
+     * @notice Special method to decrease liquidity and collect decreased amount - can only be called by the NFT owner
+     * @dev Needs to do collect at the same time, otherwise the available amount would be autocompoundable for other positions
+     * @param params DecreaseLiquidityAndCollectParams which are forwarded to the Uniswap V3 NonfungiblePositionManager
+     * @return amount0 amount of token0 removed and collected
+     * @return amount1 amount of token1 removed and collected
+     */
+    function decreaseLiquidityAndCollect(DecreaseLiquidityAndCollectParams calldata params) 
+        override
+        external  
+        nonReentrant 
+        returns (uint256 amount0, uint256 amount1) 
+    {
+        require(ownerOf[params.tokenId] == msg.sender, "!owner");
+        (amount0, amount1) = nonfungiblePositionManager.decreaseLiquidity(
+            INonfungiblePositionManager.DecreaseLiquidityParams(
+                params.tokenId, 
+                params.liquidity, 
+                params.amount0Min, 
+                params.amount1Min,
+                params.deadline
+            )
+        );
+
+        INonfungiblePositionManager.CollectParams memory collectParams = 
+            INonfungiblePositionManager.CollectParams(
+                params.tokenId, 
+                params.recipient, 
+                LiquidityAmounts.toUint128(amount0), 
+                LiquidityAmounts.toUint128(amount1)
+            );
+
+        nonfungiblePositionManager.collect(collectParams);
+    }
+
+    /**
+     * @notice Forwards collect call to NonfungiblePositionManager - can only be called by the NFT owner
+     * @param params INonfungiblePositionManager.CollectParams which are forwarded to the Uniswap V3 NonfungiblePositionManager
+     * @return amount0 amount of token0 collected
+     * @return amount1 amount of token1 collected
+     */
+    function collect(INonfungiblePositionManager.CollectParams calldata params) 
+        override 
+        external
+        nonReentrant 
+        returns (uint256 amount0, uint256 amount1) 
+    {
+        require(ownerOf[params.tokenId] == msg.sender, "!owner");
+        return nonfungiblePositionManager.collect(params);
+    }
+
+    /**
+     * @notice  When receiving a Uniswap V3 NFT, deposits token with from as owner
+     * @param   tokenId  the tokenId being deposited into the protocol
+     * @return  bytes4  openzeppelin: "It must return its Solidity selector to confirm the token transfer"
+     */
+    function onERC721Received(
+        address,
+        address,
+        uint256 tokenId,
+        bytes calldata
+    ) external override nonReentrant returns (bytes4) {
+        require(msg.sender == address(nonfungiblePositionManager), "!univ3 pos");
+
+        nonfungiblePositionManager.safeTransferFrom(address(this), address(masterchef), tokenId);
+
+        ownerOf[tokenId] = msg.sender;
+
+    
+
+        emit TokenDeposited(msg.sender, tokenId);
+        return this.onERC721Received.selector;
     }
 
     function sqrt(uint y) private pure returns (uint z) {
