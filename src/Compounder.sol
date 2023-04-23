@@ -249,7 +249,8 @@ contract Compounder is ICompounder, IERC721Receiver, IUniswapV3SwapCallback, Ree
             
             //swap cake for tokenToSwapWith
             (IUniswapV3Pool poolWithHighestLiq, uint24 feeTier) = findBestCakeSwapPath(tokenToSwapWith);
-
+            console.log(feeTier);
+            console.log(tokenToSwapWith);
             if (CAKE < tokenToSwapWith) {
                 //cake is token0
                 //tokenToSwapWith is token1
@@ -284,7 +285,7 @@ contract Compounder is ICompounder, IERC721Receiver, IUniswapV3SwapCallback, Ree
                     MAX_SQRT_RATIO_MINUS_ONE,
                     abi.encode(poolKey)
                 );
-
+                console.log(feeTier);
                 if (tokenToSwapWith == token0) {
                     return (uint256(amount0Out), 0);
                 } else {
@@ -294,7 +295,7 @@ contract Compounder is ICompounder, IERC721Receiver, IUniswapV3SwapCallback, Ree
 
         }
     }
-    //todo add overrides
+
     function determineTokenToSwapWith(address token0, address token1) private view returns (address token) {
         //determine if either token is inside whitelisted
         //it doesn't matter if both are whitelisted - their liquidities are deep enough that it doesn't make sense to compare prices/liquidities
@@ -311,7 +312,6 @@ contract Compounder is ICompounder, IERC721Receiver, IUniswapV3SwapCallback, Ree
 
     }
 
-    //todo add overrides
     function findBestCakeSwapPath(address token) private view returns (IUniswapV3Pool poolWithHighestLiq, uint24 fee) {
         uint24[] memory feeTiersCopy = feeTiers;
 
